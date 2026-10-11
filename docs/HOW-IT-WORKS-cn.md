@@ -36,7 +36,9 @@
 
 **关键设计**：每个结束点都走 `Stop-Script`（定义在脚本开头）—— 它先清掉 `%TEMP%\hd2_bink_work\`（暂存的 bink 工具 + 商业 DLL），再 `Read-Host` 暂停、`exit`，保证窗口不闪退、临时文件不残留。
 
-## 三、依赖检测（6 类，各自独立函数）
+## 三、依赖检测
+
+> **关于原版告示视频（最先执行的一步）**：`assets\83cc35d311ee2648.stream`（10.6 MB）是**游戏数据，不随包分发**。首次运行时 `build-mod.ps1` 会打印 `[0] vanilla notice video (not bundled - rebuilding from your game)`，并调用 `tools\extract-vanilla.py` 从玩家自己的 `data\bundles.*.nxa` 把它重建出来：读 `bundles.nxa`（DSAR 小压缩包）里的包索引 → 定位该包落在哪个 `bundles.NN.nxa`、什么偏移 → 按 0x20 字节 chunk 头逐块读取并解 lz4 → 拼接还原。结果与游戏原版**逐字节相同**。该步骤需要 Python 的 `lz4` 包；文件已存在时整段跳过，不重复提取。重建失败会明确提示 `pip install lz4` 或手动放置文件。
 
 ### 1. 内置资产（6 个文件，随包自带）
 `Test-Path` 逐个检查：`base container`、`notice video`、`binktest.exe`、`BinkExtractAudio.exe`、`make-final-patch2.py`、`encode.ps1`。缺失 = 包不完整（阻断）。

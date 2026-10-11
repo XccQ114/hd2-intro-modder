@@ -17,6 +17,14 @@ coverage-gate/
 .coverage
 reports/
 
+# ---- game data: never commit ----
+# The vanilla notice video is game data. It is NOT bundled; build-mod.ps1 rebuilds it
+# from the player's own installation into this path. The extractor also drops the
+# package container and a gpu_resources sibling there - none of them belong in the repo.
+assets/83cc35d311ee2648
+assets/83cc35d311ee2648.stream
+assets/83cc35d311ee2648.gpu_resources
+
 # ---- commercial tools / game data that must never be redistributed ----
 # bink2w64.dll is RAD Game Tools' (Epic Games Tools) decoder: the script locates the
 # copy that ships with Helldivers 2 instead of bundling it. Keep it out of the repo.

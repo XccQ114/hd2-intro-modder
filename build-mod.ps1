@@ -289,6 +289,38 @@ $rv     = Find-Radvideo64
 $py     = Find-Python
 $ww     = Find-WwiseConsole
 $wproj  = Find-Wproj
+$gameDirFound = Find-Hd2GameDir
+
+# ---- vanilla notice video: bundled when present, otherwise rebuilt from the player's game ----
+# The notice is Helldivers 2 game data, so it is deliberately NOT redistributed with this
+# package (which keeps the published download free of game assets). When
+# assets\83cc35d311ee2648.stream is absent we rebuild it from the player's own
+# bundles.*.nxa - byte-for-byte identical to what the game ships (verified by SHA256).
+$NoticePackage = '83cc35d311ee2648'
+if (-not (Test-Path -LiteralPath $V1)) {
+    W "[0] vanilla notice video (not bundled - rebuilding from your game)" "Yellow"
+    $ExtractPy = Join-Path $Tools 'extract-vanilla.py'
+    if (-not $gameDirFound) {
+        W "  [MISS] Helldivers 2 install not found - pass -GameDir <path>" "Red"
+    } elseif (-not $py) {
+        W "  [MISS] python is required to rebuild the notice video" "Red"
+    } elseif (-not (Test-Path -LiteralPath $ExtractPy)) {
+        W "  [MISS] missing helper: $ExtractPy" "Red"
+    } else {
+        & $py $ExtractPy (Join-Path $gameDirFound 'data') $NoticePackage $Assets
+        # the helper also writes the package container and a .gpu_resources sibling;
+        # this project only needs the .stream, so drop the leftovers.
+        foreach ($junk in @((Join-Path $Assets $NoticePackage), (Join-Path $Assets ($NoticePackage + '.gpu_resources')))) {
+            if (Test-Path -LiteralPath $junk) { Remove-Item -LiteralPath $junk -Force -ErrorAction SilentlyContinue }
+        }
+        if (Test-Path -LiteralPath $V1) {
+            W ("  [OK]   rebuilt from bundles (" + (Get-Item -LiteralPath $V1).Length + " bytes)") "Green"
+        } else {
+            W "  [MISS] rebuild failed - if the message mentions lz4, run: python -m pip install lz4" "Red"
+            W "         or place the file manually at: $V1" "Red"
+        }
+    }
+}
 
 # built-in assets
 $builtin = @(
@@ -335,7 +367,6 @@ if ($Wem) {
 # package. We take the copy the game itself installed and stage both tools plus that DLL
 # in a temp work dir - neither the package folder nor the game folder gets touched.
 W "[5] bink2w64.dll (audio extraction + decode check)" "Yellow"
-$gameDirFound = Find-Hd2GameDir
 $binkDll = Find-BinkDll
 $BinkWorkExe  = $BinkExtract
 $BinkWorkTest = $BinkTest
