@@ -100,7 +100,7 @@ powershell -ExecutionPolicy Bypass -File build-mod.ps1 -Video 视频.mp4 -Wem �
 
 ⚠️ **本仓库不分发任何游戏视频数据。** 原版开场告示视频由 `build-mod.ps1` 从你自己安装的游戏里重建（见上方「环境依赖」）。仓库里唯一与游戏数据相关的是 `assets\9ba626afa44a3aa3.patch_0` —— 一个 1.1 MB 的 patch **空模板**（SoundBank 已清零，99.8% 是零字节，zip 后仅 8.7 KB），版权归 **Arrowhead Game Studios / Sony Interactive Entertainment**，**不适用 CC 许可**，仅供个人在你自己拥有该游戏的机器上使用。
 
-完整说明、第三方组件清单与免责声明见 [LICENSE](LICENSE)。
+许可证全文见 [LICENSE](LICENSE)(CC BY-NC 4.0 官方文本);项目归属与署名要求、随包游戏数据说明、第三方组件清单与免责声明见 [NOTICE.md](NOTICE.md)。
 
 ## 文档
 
@@ -211,7 +211,7 @@ Licensed under **CC BY-NC 4.0** (Attribution-NonCommercial) by **XccQ114**. It i
 
 ⚠️ **This repository ships no game video data.** The vanilla notice video is rebuilt by `build-mod.ps1` from your own installation (see "Requirements" above). The only game-derived file kept here is `assets\9ba626afa44a3aa3.patch_0` - a 1.1 MB patch **skeleton** whose SoundBank payload has been zeroed out (99.8% zero bytes, 8.7 KB after zip). It remains the property of **Arrowhead Game Studios / Sony Interactive Entertainment**, is **not** covered by the CC license, and is for personal use on a machine where you own the game only.
 
-See [LICENSE](LICENSE) for the full text, the third-party component list and the disclaimer.
+Full licence text: [LICENSE](LICENSE) (the official CC BY-NC 4.0 legal code). Project attribution, the bundled game-data notice, the third-party component list and the disclaimer: [NOTICE.md](NOTICE.md).
 
 ## Docs
 

@@ -1,0 +1,92 @@
+# 声明与第三方内容 / Notices
+
+> **许可证的法律全文在 [`LICENSE`](LICENSE)**(CC BY-NC 4.0)。
+> 本文件写的是**项目归属与署名要求、随包的游戏数据说明、第三方组件清单、免责声明** —— 这些内容要么不在 CC 许可覆盖范围内,要么需要额外说明。
+
+**hd2-intro-modder** —— 把一段 MP4 打包成《绝地潜兵 2》(Helldivers 2)开场动画替换 mod 的工具。
+
+---
+
+## 一、项目归属与署名要求
+
+**作者 / Author**:**XccQ114**
+· GitHub <https://github.com/XccQ114> · B 站 <https://space.bilibili.com/1853718846>
+
+**上游来源 / Upstream**:本项目是作者**自己的** [HD2-Mod 开发套件 v1.0.0](https://github.com/XccQ114/hd2-mod-dev-kit)
+的衍生工具,复用了其工具链(`binktest`、`BinkExtractAudio`、`make-final-patch2.py`、`encode.ps1`)与基底资产。
+两个项目均以 **CC BY-NC 4.0** 发布。
+
+**署名与非商业要求**:按 CC BY-NC 4.0 第 3 条 ——
+
+- 任何再分发(含修改后的版本)必须保留上述署名、提供指向本许可的链接,并说明是否对作品作了修改,**不得冒充为原创发布**;
+- 不得将本作品用于商业目的(含收费下载、打赏变现、付费课程、商业产品集成等)。
+
+---
+
+## 二、⚠️ 关于《绝地潜兵 2》游戏数据
+
+**本仓库不分发任何游戏视频数据。**
+
+原版开场告示视频(`83cc35d311ee2648.stream`,10.6 MB)由 `build-mod.ps1`
+**从你自己安装的游戏里重建** —— 读取 `data\bundles.*.nxa` 的包索引与数据块,
+还原出的文件与游戏原版**逐字节相同**(SHA256 已实测一致)。因此公开下载包里不含任何游戏视频内容。
+
+仓库中唯一与游戏数据相关的是:
+
+| 文件 | 大小 | 内容 |
+|---|---|---|
+| `assets\9ba626afa44a3aa3.patch_0` | 1.1 MB(zip 后约 8.7 KB) | patch 容器**空模板**:4 类型 / 7 条目的架构。原 SoundBank 数据**已清零** —— 1,084,577 字节中 99.8% 为零,仅余结构字段与两条资源路径字符串 |
+
+该模板版权归 **Arrowhead Game Studios / Sony Interactive Entertainment** 所有,
+**不适用** CC BY-NC 4.0,而是「随工具附带、仅供个人使用」:
+
+- 随包的目的是让工具能拼出游戏可读取的 patch 容器(开场槽位必须同时提供「告示」与「开场视频」两段数据,容器结构才自洽);
+- **仅限在你自己合法拥有《绝地潜兵 2》的机器上使用**;
+- **不得单独提取、再分发或用于任何商业用途**;
+- 本项目作者不主张对该文件的任何权利。
+
+> 如果你是其权利人并希望移除,请提 Issue,我们会立即处理。
+
+---
+
+## 三、其他第三方内容
+
+| 内容 | 权利人 | 本项目是否分发 | 说明 |
+|---|---|---|---|
+| RAD Video Tools(`radvideo64.exe`) | RAD Game Tools, Inc. / Epic Games Tools, LLC | ❌ **不分发** | 商业软件(可免费使用);请自行从 <https://www.radgametools.com/bnkdown.htm> 安装 |
+| `bink2w64.dll` | RAD Game Tools, Inc. / Epic Games Tools, LLC | ❌ **不分发** | 商业解码器。脚本会**自动定位**你游戏目录里的 `bin\bink2w64.dll` 用于音频提取与解码校验;找不到时给出明确提示,音频也可用 `-Wem` 绕过 |
+| Wwise(`WwiseConsole.exe`) | Audiokinetic Inc. | ❌ **不分发** | 商业软件(个人/学习免费);请自行安装,仅在需要转换音频时使用 |
+| `wwise-project\` 内的 `Factory*.wwu` | Audiokinetic Inc. | ✅ 随包 | Wwise 工程模板文件(Factory Conversion Settings / Effects / Queries / Attenuations / Spatial Audio),随 Wwise Authoring 一并产生。**其再分发许可未核实**,若 Audiokinetic EULA 不允许,请删掉 `wwise-project\` 并自行用 Wwise 新建一个 Audio Conversion 工程 |
+| `tools\binktest\binktest.exe`、`BinkExtractAudio.exe` | 源自 HD2-Mod 开发套件(XccQ114) | ✅ 随包 | 套件自研工具,适用 CC BY-NC 4.0 |
+| `src\*.py`、`tools\*.ps1`、`gui\*.cs` 源码 | 本项目 / 上游套件 | ✅ 随包 | 适用 CC BY-NC 4.0 |
+| ffmpeg / ffprobe | FFmpeg 项目(LGPL / GPL) | ❌ 不分发 | 仅在「源视频 <720p 需重压」或「超过 1440p/60fps 需降级」时需要;请自行安装 |
+
+---
+
+## 四、免责声明
+
+- 使用本工具生成的 mod,其**视频/音频素材的版权与授权由使用者自行负责**;请勿使用你没有权利使用的内容。
+- 修改游戏文件可能导致游戏无法启动、存档异常、联机被反作弊系统判定等后果,**风险自负**。
+- 本项目作者不对使用者生成或分发的内容承担任何责任。
+
+---
+
+## English summary
+
+**hd2-intro-modder** is licensed under **CC BY-NC 4.0** (Attribution-NonCommercial 4.0 International) by
+**XccQ114**; the full legal text is in [`LICENSE`](LICENSE). It is a derivative of the author's own
+*HD2-Mod Dev Kit v1.0.0*, and that attribution must be preserved in any redistribution.
+
+**Game data:** this repository does **not** ship any Helldivers 2 video data. The vanilla notice video is
+rebuilt from your own installation by `build-mod.ps1` (it reads `data\bundles.*.nxa`), producing a
+byte-identical copy. The only game-derived file kept in the repository is
+`assets\9ba626afa44a3aa3.patch_0` - a 1.1 MB patch **skeleton** whose SoundBank payload has been zeroed
+out (99.8% of it is zero bytes). That skeleton remains the property of Arrowhead Game Studios / Sony
+Interactive Entertainment, is not covered by the CC licence, and is for personal use on a machine where
+you legally own the game only.
+
+**Not bundled:** RAD Video Tools, `bink2w64.dll` (the tool locates your game's own copy), Wwise, and
+ffmpeg. See the table above.
+
+**Disclaimer:** you are responsible for the rights to any video/audio you turn into a mod. Modifying game
+files can break your installation - use at your own risk.
