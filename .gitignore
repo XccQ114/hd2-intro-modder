@@ -1,0 +1,39 @@
+# ---- runtime output: never commit ----
+output/
+log/
+config.json
+
+# ---- Wwise runtime caches (regenerated on the first audio conversion) ----
+wwise-project/**/.cache/
+*.validationcache
+
+# ---- Python caches ----
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# ---- quality-gate byproducts ----
+coverage-gate/
+.coverage
+reports/
+
+# ---- commercial tools / game data that must never be redistributed ----
+# bink2w64.dll is RAD Game Tools' (Epic Games Tools) decoder: the script locates the
+# copy that ships with Helldivers 2 instead of bundling it. Keep it out of the repo.
+bink2w64.dll
+RADVideo/
+radtools.exe
+Wwise/
+
+# ---- build/test byproducts ----
+*.zip
+*.bk2
+*.wav
+*.wem
+
+# ---- internal notes (contain local machine paths and usernames) ----
+HANDOFF.md
+
+# ---- OS noise ----
+Thumbs.db
+desktop.ini

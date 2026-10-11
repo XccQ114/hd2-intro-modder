@@ -1,0 +1,26 @@
+# Normalise line endings in the repository, keep the working tree native to each OS.
+# Without this, Git warns about LF→CRLF on almost every text file on Windows.
+* text=auto
+
+# Windows-native scripts and sources
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cs    text eol=crlf
+
+# Cross-platform sources
+*.py    text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Binary assets and tool executables must never be touched
+*.exe   binary
+*.dll   binary
+*.patch_0 binary
+*.stream  binary
+*.bk2   binary
+*.wem   binary
+*.wav   binary
+*.wwu   binary
+*.wproj binary
