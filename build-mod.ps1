@@ -316,8 +316,8 @@ if (-not (Test-Path -LiteralPath $V1)) {
         if (Test-Path -LiteralPath $V1) {
             W ("  [OK]   rebuilt from bundles (" + (Get-Item -LiteralPath $V1).Length + " bytes)") "Green"
         } else {
-            W "  [MISS] rebuild failed - if the message mentions lz4, run: python -m pip install lz4" "Red"
-            W "         or place the file manually at: $V1" "Red"
+            W "  [MISS] rebuild failed - see the message above." "Red"
+            W "         You can also place the file manually at: $V1" "Red"
         }
     }
 }

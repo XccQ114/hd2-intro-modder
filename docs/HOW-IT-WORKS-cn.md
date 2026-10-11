@@ -38,7 +38,9 @@
 
 ## 三、依赖检测
 
-> **关于原版告示视频（最先执行的一步）**：`assets\83cc35d311ee2648.stream`（10.6 MB）是**游戏数据，不随包分发**。首次运行时 `build-mod.ps1` 会打印 `[0] vanilla notice video (not bundled - rebuilding from your game)`，并调用 `tools\extract-vanilla.py` 从玩家自己的 `data\bundles.*.nxa` 把它重建出来：读 `bundles.nxa`（DSAR 小压缩包）里的包索引 → 定位该包落在哪个 `bundles.NN.nxa`、什么偏移 → 按 0x20 字节 chunk 头逐块读取并解 lz4 → 拼接还原。结果与游戏原版**逐字节相同**。该步骤需要 Python 的 `lz4` 包；文件已存在时整段跳过，不重复提取。重建失败会明确提示 `pip install lz4` 或手动放置文件。
+> **关于原版告示视频（最先执行的一步）**：`assets\83cc35d311ee2648.stream`（10.6 MB）是**游戏数据，不随包分发**。首次运行时 `build-mod.ps1` 会打印 `[0] vanilla notice video (not bundled - rebuilding from your game)`，并调用 `tools\extract-vanilla.py` 从玩家自己的 `data\bundles.*.nxa` 把它重建出来：读 `bundles.nxa`（DSAR 小压缩包）里的包索引 → 定位该包落在哪个 `bundles.NN.nxa`、什么偏移 → 按 0x20 字节 chunk 头逐块读取并解压 → 拼接还原。结果与游戏原版**逐字节相同**。文件已存在时整段跳过，不重复提取。
+>
+> LZ4 解码是**内置的纯 Python 实现**（`_lz4_block_decompress`）：环境里恰好装了 `lz4` C 模块时会自动改用它加速，两者输出逐字节相同 —— 所以这一步**不需要 pip、不需要联网**。实测：纯 Python 解码 0.79 秒，C 模块 0.37 秒。
 
 ### 1. 内置资产（6 个文件，随包自带）
 `Test-Path` 逐个检查：`base container`、`notice video`、`binktest.exe`、`BinkExtractAudio.exe`、`make-final-patch2.py`、`encode.ps1`。缺失 = 包不完整（阻断）。

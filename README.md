@@ -9,7 +9,6 @@
 | RAD Video Tools (radvideo64.exe) | 仅检测 | https://www.radgametools.com/bnkdown.htm |
 | Python 3 | 仅检测 | https://www.python.org/downloads/ |
 | **《绝地潜兵 2》本体**(提供 `bin\bink2w64.dll`,并用于重建原版告示视频) | **自动定位** | 你已经在玩这个游戏 :) |
-| lz4（Python 包，**仅重建告示视频时需要**） | 仅检测 | `python -m pip install lz4` |
 | Wwise（仅换音频需要） | 仅检测 | https://www.audiokinetic.com/download/ |
 | ffmpeg/ffprobe（仅重压/降级需要） | 仅检测 | https://ffmpeg.org/download.html |
 
@@ -18,7 +17,7 @@
 > **为什么需要你的游戏**：把 `.bk2` 里的 BINK 音轨提取成 WAV（`BinkExtractAudio.exe`）、以及最后的全帧解码校验（`binktest.exe`），都要用 Bink 解码器 `bink2w64.dll`。那是 RAD Game Tools 的商业 DLL，**本项目不分发**，而是自动从你的游戏目录取（Steam 注册表 → 库文件夹 → 常见路径，也可用 `-GameDir` 指定），复制到临时目录用完即删。
 > 找不到时会明确提示；此时仍可用 `-Wem` 传入现成 wem 跳过音频提取。
 >
-> **为什么首次运行会「重建告示视频」**：原版开场告示视频属于游戏数据，**本项目不分发**。首次运行时脚本会读取你游戏 `data\bundles.*.nxa` 里的包索引与 lz4 数据块把它还原出来，结果与游戏原版**逐字节相同**（SHA256 已实测一致）。这一步需要 Python 的 `lz4` 包（`python -m pip install lz4`）—— 装一次即可，之后文件已存在就不会重复提取。
+> **为什么首次运行会「重建告示视频」**：原版开场告示视频属于游戏数据，**本项目不分发**。首次运行时脚本会读取你游戏 `data\bundles.*.nxa` 里的包索引与数据块把它还原出来 —— 用**内置的纯 Python LZ4 解码器**，因此**不需要任何额外依赖、也不需要联网**。结果与游戏原版**逐字节相同**（SHA256 已实测一致）。文件已存在时整段跳过，不重复提取。
 
 ## 安装依赖
 

@@ -30,9 +30,9 @@ Example
 -------
     python tools\\extract-vanilla.py "D:\\steam\\steamapps\\common\\Helldivers 2\\data" 83cc35d311ee2648 assets
 
-Requires the `lz4` module (``pip install lz4``) - only when a chunk is actually
-compressed, but the import happens up front, so it is effectively a requirement of
-this script.
+Requires nothing beyond the Python standard library: if the optional `lz4` module is
+installed it is used for speed, otherwise a built-in pure-Python LZ4 block decoder
+takes over.
 """
 
 import os
@@ -220,16 +220,85 @@ class BundleIndex:
 
 
 def _lz4(data, uncompressed_size):
-    if lz4_block is None:
-        raise RuntimeError(
-            "this package is lz4-compressed and the 'lz4' module is missing.\n"
-            "Install it with:  python -m pip install lz4"
+    """Decompress one LZ4 block.
+
+    The `lz4` C module is used when it happens to be installed; otherwise a
+    pure-Python decoder takes over. That keeps this tool working on a stock
+    Python with no extra packages and no network access at all.
+    """
+    if lz4_block is not None:
+        return lz4_block.decompress(data, uncompressed_size=uncompressed_size)
+    return _lz4_block_decompress(data, uncompressed_size)
+
+
+def _lz4_block_decompress(src, uncompressed_size):
+    """Pure-Python LZ4 block decoder.
+
+    Block format (https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md):
+    a sequence of tokens. Each token is (literal_length << 4) | match_length, and a
+    nibble of 15 means "read extra bytes, adding each, until one is < 255". After the
+    literals comes a 2-byte little-endian match offset, then a match copy of
+    (match_length + 4) bytes. The final sequence carries literals only.
+
+    Matches may overlap their own output (offset < match length), which is how LZ4
+    encodes runs - handled by repeating the available bytes.
+    """
+    dst = bytearray()
+    i = 0
+    n = len(src)
+    while i < n:
+        token = src[i]
+        i += 1
+
+        lit_len = token >> 4
+        if lit_len == 15:
+            while True:
+                extra = src[i]
+                i += 1
+                lit_len += extra
+                if extra != 255:
+                    break
+        if lit_len:
+            dst += src[i:i + lit_len]
+            i += lit_len
+
+        if i >= n:                      # final sequence holds literals only
+            break
+
+        offset = src[i] | (src[i + 1] << 8)
+        i += 2
+        if offset == 0:
+            raise ValueError("corrupt lz4 block: zero match offset")
+
+        match_len = token & 0x0F
+        if match_len == 15:
+            while True:
+                extra = src[i]
+                i += 1
+                match_len += extra
+                if extra != 255:
+                    break
+        match_len += 4
+
+        start = len(dst) - offset
+        if start < 0:
+            raise ValueError("corrupt lz4 block: match offset beyond decoded output")
+        if offset >= match_len:
+            dst += bytes(dst[start:start + match_len])
+        else:
+            # Overlapping match: the source pattern repeats, so grow an immutable copy.
+            # (A bytearray must not be extended from itself - CPython raises
+            # "BufferError: Existing exports of data: object cannot be re-sized".)
+            piece = bytes(dst[start:])
+            while len(piece) < match_len:
+                piece = piece + piece
+            dst += piece[:match_len]
+
+    if uncompressed_size is not None and len(dst) != uncompressed_size:
+        raise ValueError(
+            "lz4 block decoded to %d bytes but %d were expected" % (len(dst), uncompressed_size)
         )
-    return lz4_block.decompress(data, uncompressed_size=uncompressed_size)
-
-
-def _resolve_python_hint():
-    return "python -m pip install lz4"
+    return bytes(dst)
 
 
 def main(argv):
@@ -266,9 +335,8 @@ def main(argv):
             continue
         try:
             data = index.reconstruct(name)
-        except RuntimeError as exc:
-            print("ERROR: %s" % exc)
-            print("       hint: %s" % _resolve_python_hint())
+        except (ValueError, RuntimeError) as exc:
+            print("ERROR: failed to rebuild %s: %s" % (name, exc))
             return 1
         if not data:
             continue
