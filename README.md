@@ -98,7 +98,7 @@ powershell -ExecutionPolicy Bypass -File build-mod.ps1 -Video 视频.mp4 -Wem �
 
 本项目采用 **CC BY-NC 4.0**（署名 — 非商业性使用），作者 **XccQ114**。它是作者自己的 [HD2-Mod 开发套件](https://github.com/XccQ114/hd2-mod-dev-kit) 的衍生工具。**任何再分发（含修改版）都必须保留署名**，不得冒充原创。
 
-⚠️ **`assets\` 里的两个文件是《绝地潜兵 2》的游戏数据**（基底容器 `9ba626afa44a3aa3.patch_0` + 原版告示视频 `83cc35d311ee2648.stream`），版权归 **Arrowhead Game Studios / Sony Interactive Entertainment**，**不适用 CC 许可**，仅供个人在你自己拥有该游戏的机器上使用，不得单独提取或再分发。
+⚠️ **本仓库不分发任何游戏视频数据。** 原版开场告示视频由 `build-mod.ps1` 从你自己安装的游戏里重建（见上方「环境依赖」）。仓库里唯一与游戏数据相关的是 `assets\9ba626afa44a3aa3.patch_0` —— 一个 1.1 MB 的 patch **空模板**（SoundBank 已清零，99.8% 是零字节，zip 后仅 8.7 KB），版权归 **Arrowhead Game Studios / Sony Interactive Entertainment**，**不适用 CC 许可**，仅供个人在你自己拥有该游戏的机器上使用。
 
 完整说明、第三方组件清单与免责声明见 [LICENSE](LICENSE)。
 
@@ -119,14 +119,16 @@ Turn a MP4 into a Helldivers 2 intro-replacement mod (one command).
 |---|---|---|
 | RAD Video Tools (radvideo64.exe) | detect only | https://www.radgametools.com/bnkdown.htm |
 | Python 3 | detect only | https://www.python.org/downloads/ |
-| **Helldivers 2 itself** (supplies `bin\bink2w64.dll`) | **auto-located** | you already own the game :) |
+| **Helldivers 2 itself** (supplies `bin\bink2w64.dll`, and the source data for the notice video) | **auto-located** | you already own the game :) |
 | Wwise (audio conversion only) | detect only | https://www.audiokinetic.com/download/ |
 | ffmpeg/ffprobe (rescale / downscale only) | detect only | https://ffmpeg.org/download.html |
 
-Built-in (no install): binktest tools, packager scripts, base container + notice video, and a Wwise Audio Conversion project (`wwise-project\`).
+Built-in (no install): binktest tools, packager scripts, the base container template, and a Wwise Audio Conversion project (`wwise-project\`).
 
 > **Why your game is needed**: pulling the BINK audio track out of the `.bk2` (`BinkExtractAudio.exe`) and the final full-frame decode check (`binktest.exe`) both need the Bink decoder `bink2w64.dll`. That is a commercial RAD Game Tools DLL, so **this project does not ship it** - the script locates the copy your game already installed (Steam registry → library folders → common paths, or `-GameDir`) and stages it in a temp folder that is deleted when the run ends.
 > If it cannot be found you get a clear message, and you can still pass a ready-made wem with `-Wem` to skip audio extraction.
+>
+> **Why the first run rebuilds the notice video**: the vanilla intro notice is game data, so **this project does not ship it**. On the first run the script reads the package index and data blocks inside your game's `data\bundles.*.nxa` and reconstructs it - using a **built-in pure-Python LZ4 decoder**, so it needs **no extra packages and no network**. The result is **byte-for-byte identical** to what the game ships (SHA256 verified). Once the file exists the step is skipped entirely.
 
 ## Install dependencies
 
@@ -207,7 +209,7 @@ If anything fails, please collect and report the following (most important first
 
 Licensed under **CC BY-NC 4.0** (Attribution-NonCommercial) by **XccQ114**. It is a derivative of the author's own [HD2-Mod Dev Kit](https://github.com/XccQ114/hd2-mod-dev-kit) - **any redistribution (including modified versions) must preserve the attribution.**
 
-⚠️ The two files in `assets\` are derived from *Helldivers 2* game data (base container `9ba626afa44a3aa3.patch_0` + vanilla notice video `83cc35d311ee2648.stream`) and remain the property of **Arrowhead Game Studios / Sony Interactive Entertainment**. They are **not** covered by the CC license and are for personal use on a machine where you own the game only.
+⚠️ **This repository ships no game video data.** The vanilla notice video is rebuilt by `build-mod.ps1` from your own installation (see "Requirements" above). The only game-derived file kept here is `assets\9ba626afa44a3aa3.patch_0` - a 1.1 MB patch **skeleton** whose SoundBank payload has been zeroed out (99.8% zero bytes, 8.7 KB after zip). It remains the property of **Arrowhead Game Studios / Sony Interactive Entertainment**, is **not** covered by the CC license, and is for personal use on a machine where you own the game only.
 
 See [LICENSE](LICENSE) for the full text, the third-party component list and the disclaimer.
 

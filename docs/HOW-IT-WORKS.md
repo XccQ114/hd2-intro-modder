@@ -15,7 +15,9 @@ your-video.mp4
                                             (= installable mod for game data\)
 ```
 
-Three fixed assets (bundled in `assets\`): the base container `9ba626afa44a3aa3.patch_0` (cleaned) and the vanilla notice video `83cc35d311ee2648.stream`.
+One asset is bundled in `assets\`: the base container `9ba626afa44a3aa3.patch_0` (a cleaned 7-entry skeleton).
+
+The vanilla notice video `83cc35d311ee2648.stream` is **not** bundled - it is game data. `build-mod.ps1` rebuilds it from the player's own `data\bundles.*.nxa` on the first run (see §3.0).
 
 ## 2. Main pipeline (`build-mod.ps1`, 7 stages)
 
@@ -25,7 +27,7 @@ The script is an **orchestrator** — it never touches binary data itself; it ca
 |---|---|---|
 | 0. input | `$Video` empty in the `param` block | pop an `OpenFileDialog`; exit if cancelled |
 | 1. locate | `$Root = $PSScriptRoot` | every path is `Join-Path`-relative (location-independent - the folder can be moved anywhere) |
-| 2. scan | checks `[1]`-`[5]` | built-in assets / radvideo64 / Python / audio / bink2w64.dll, printing `[OK]` `[MISS]` `[SKIP]` per item |
+| 2. rebuild + scan | `[0]`, then `[1]`-`[5]` | `[0]` rebuilds the notice video from the player's game when it is absent; then built-in assets / radvideo64 / Python / audio / bink2w64.dll are checked, printing `[OK]` `[MISS]` `[SKIP]` per item |
 | 3. block | when `$fatal` is non-empty | list what is missing → `Stop-Script 1` |
 | 4. encode | `[1/4]` | run `encode.ps1` to produce `.bk2`, verify flags via `analyze-bink.ps1` |
 | 5. audio | `[2/4]` | extract track → wav → wem (or use a `-Wem` file directly) |
@@ -36,7 +38,12 @@ The script is an **orchestrator** — it never touches binary data itself; it ca
 
 **Key design**: every exit point goes through `Stop-Script` (defined near the top of the script) - it first deletes `%TEMP%\hd2_bink_work\` (the staged bink tools + commercial DLL), then `Read-Host` pause and `exit`, so the window never flashes away and no temp files are left behind.
 
-## 3. Dependency detection (6 kinds)
+## 3. Dependency detection
+
+### 3.0 Vanilla notice video (checked first, not shipped)
+`assets\83cc35d311ee2648.stream` (10.6 MB) is **game data and is not redistributed**. When it is missing, `build-mod.ps1` prints `[0] vanilla notice video (not bundled - rebuilding from your game)` and calls `tools\extract-vanilla.py`, which rebuilds it from the player's own `data\bundles.*.nxa`: read the package index inside `bundles.nxa` (a small DSAR archive) → find which `bundles.NN.nxa` holds the package and at what offset → walk the 0x20-byte chunk headers, decompressing each chunk → stitch the pieces back together. The output is byte-for-byte identical to what the game ships.
+
+LZ4 decoding is a **built-in pure-Python implementation** (`_lz4_block_decompress`); when the optional `lz4` C module happens to be installed it is used for speed instead, and both produce identical bytes - so this step needs **no pip and no network**. Measured on the 10.6 MB payload: 0.79 s pure Python, 0.37 s with the C module.
 
 ### 3.1 Built-in assets (6 files)
 `Test-Path` checks each: `base container`, `notice video`, `binktest.exe`, `BinkExtractAudio.exe`, `make-final-patch2.py`, `encode.ps1`. Missing = incomplete package (blocks).

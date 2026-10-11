@@ -25,7 +25,7 @@
 |---|---|---|
 | 0. 取输入 | `param` 段的 `$Video` 为空时 | 弹 `OpenFileDialog` 选 mp4；取消则退出 |
 | 1. 定位 | `$Root = $PSScriptRoot` | 所有路径 `Join-Path` 相对定位（**位置无关**，包可以搬到任何地方） |
-| 2. 环境扫描 | `[1]`–`[5]` 五组检测 | 内置资产 / radvideo64 / Python / 音频 / bink2w64.dll，逐项打印 `[OK]` `[MISS]` `[SKIP]` |
+| 2. 重建+扫描 | 先 `[0]` 再 `[1]`–`[5]` | `[0]` 在告示视频缺失时从玩家游戏里重建；随后检测内置资产 / radvideo64 / Python / 音频 / bink2w64.dll，逐项打印 `[OK]` `[MISS]` `[SKIP]` |
 | 3. 硬阻断 | `$fatal` 非空时 | 列出缺失清单 → `Stop-Script 1`（暂停后退出） |
 | 4. 编码 | `[1/4]` | 调 `encode.ps1` 出 `.bk2`，再用 `analyze-bink.ps1` 校验 flags |
 | 5. 音频 | `[2/4]` | 提音轨 → wav → wem（或直接用 `-Wem` 传入的现成 wem） |
