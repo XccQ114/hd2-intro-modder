@@ -122,5 +122,6 @@ stream = wem + pad16 + v1(告示) + pad16 + v2(新视频)
 1. **视频必须 `bink2c /V6344`**（flags=0x40012）——游戏内置 bink2w64.dll 只认此模式；`0x40010` 崩溃，改头无效。
 2. **音频走 Wwise Vorbis wem**，不是 BINK 音轨——游戏用 Wwise 引擎播 stream 开头 wem。
 3. **patch 编号 0..N 连续无空洞**——有空洞游戏不读该 mod（`--num` 默认 0）。
-4. **中文/非 ASCII 路径**会卡死 radvideo64 → `encode.ps1` 强制 ASCII 中转。
-5. **不自动装商业依赖**（radvideo64、Wwise）——只「检测 + 引导下载 + 支持放便携包内」。
+4. **源视频不限分辨率**——低于 720p 会自动重压到 1280x720，超过 1440p 或 60fps 会自动降级到 2560x1440 / 60fps（两步都需要 ffmpeg）。缺 ffmpeg 时直接阻断，绝不输出游戏内花屏的成品。
+5. **中文/非 ASCII 路径**会卡死 radvideo64 → `encode.ps1` 强制 ASCII 中转。
+6. **不自动装商业依赖**——radvideo64 与 Wwise 只「检测 + 引导」，ffmpeg 与 Python 免安装版可在用户确认后代下载。

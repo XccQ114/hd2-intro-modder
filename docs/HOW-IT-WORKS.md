@@ -125,5 +125,6 @@ stream = wem + pad16 + v1(notice) + pad16 + v2(new video)
 1. **Video must be `bink2c /V6344`** (flags=0x40012) — the game's bundled bink2w64.dll only accepts this mode; `0x40010` crashes, and patching the header alone does not help.
 2. **Audio is a Wwise Vorbis wem**, not the BINK track — the game plays the wem at the stream start via the Wwise engine.
 3. **Patch numbers must be 0..N with no gaps** — a gap makes the game ignore the mod (`--num` defaults to 0).
-4. **CJK/non-ASCII paths** hang radvideo64 → `encode.ps1` forces an ASCII temp-dir hop.
-5. **Commercial dependencies (radvideo64, Wwise) are never auto-installed** — only detected, guided, and accepted from the package folder.
+4. **Any source resolution is accepted** — below 720p is rescaled to 1280x720, and anything above 1440p or 60fps is downscaled to 2560x1440 / 60fps (both passes need ffmpeg). Without ffmpeg the run is blocked instead of shipping a mod that shows corrupted video in game.
+5. **CJK/non-ASCII paths** hang radvideo64 → `encode.ps1` forces an ASCII temp-dir hop.
+6. **Commercial dependencies are never auto-installed** — radvideo64 and Wwise are detect-and-guide only; ffmpeg and the Python embeddable build can be fetched after the user confirms.
