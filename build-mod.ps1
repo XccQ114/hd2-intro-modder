@@ -1,4 +1,4 @@
-# build-mod.ps1 - HD2 intro replacement mod generator (v1.0)
+# build-mod.ps1 - HD2 intro replacement mod generator (v1.1)
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File build-mod.ps1 -Video video.mp4
 #   powershell -ExecutionPolicy Bypass -File build-mod.ps1 -Video video.mp4 -Num 1 -Zip
