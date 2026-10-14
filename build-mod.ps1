@@ -96,7 +96,55 @@ $BinkTest    = Join-Path $Bink 'binktest.exe'
 $V1   = Join-Path $Assets '83cc35d311ee2648.stream'
 $Base = Join-Path $Assets '9ba626afa44a3aa3.patch_0'
 
+# ---- dependency cache (same policy as tools\deps.ps1) ----
+# Downloaded dependencies live here. Keep them inside the project, unless the project
+# itself sits on the system drive and another fixed drive is available - then that other
+# drive is used so the system drive stays clean.
+$DepsRoot = Join-Path $Root 'deps'
+try {
+    $projQual = Split-Path -Qualifier $Root -ErrorAction SilentlyContinue
+    if ($projQual -and ($projQual -eq $env:SystemDrive)) {
+        $otherDrives = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue |
+            Where-Object { $_.DeviceID -and ($_.DeviceID -ne $env:SystemDrive) } |
+            Sort-Object -Property FreeSpace -Descending)
+        if ($otherDrives.Count -gt 0) { $DepsRoot = Join-Path ($otherDrives[0].DeviceID + '\') 'hd2-intro-modder-deps' }
+    }
+} catch { }
+
+# A build that cannot produce a usable mod is quarantined into output\failed\ instead of
+# being handed to the user. Oldest quarantined builds are pruned beyond this count.
+$MaxFailedKept = 10
+
+# Dependency scan verbosity: the full checklist is printed on the first run and whenever
+# something is missing. Once a run got past the dependency gate, this stamp makes later
+# runs print a one-line summary instead - the checks themselves still run (they are cheap),
+# they just stop being noise. Any blocked run drops the stamp, so the next run is verbose
+# again. Delete the file to force a full listing.
+$DepsStamp = Join-Path $DepsRoot '.deps-ok'
+$verboseDeps = -not (Test-Path -LiteralPath $DepsStamp)
+
 function W([string]$msg, [string]$color = 'White') { Write-Host $msg -ForegroundColor $color }
+
+# Quarantine a half-built output folder so the user can never pick up an unusable mod.
+# At most $MaxFailedKept quarantined builds are kept; the oldest ones are removed first.
+function Move-FailedOutput {
+    param([string]$Dir, [string]$Reason)
+    if (-not (Test-Path -LiteralPath $Dir)) { return }
+    $failedRoot = Join-Path $OutRoot 'failed'
+    New-Item -ItemType Directory -Path $failedRoot -Force | Out-Null
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $dest = Join-Path $failedRoot ((Split-Path $Dir -Leaf) + '-' + $stamp)
+    try { Set-Content -LiteralPath (Join-Path $Dir 'FAILED.txt') -Value $Reason -Encoding utf8 } catch { }
+    Move-Item -LiteralPath $Dir -Destination $dest -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $dest) { W ("  [QUARANTINE] unusable output moved to: " + $dest) "Red" }
+    $all = @(Get-ChildItem -LiteralPath $failedRoot -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+    if ($all.Count -gt $MaxFailedKept) {
+        foreach ($d in ($all | Select-Object -Skip $MaxFailedKept)) {
+            Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            W ("  [cleanup] removed old failed build: " + $d.Name) "DarkGray"
+        }
+    }
+}
 
 # ---- config ----
 # Keep $cfg a hashtable rather than the raw PSCustomObject from ConvertFrom-Json:
@@ -145,6 +193,7 @@ function Find-Python {
     }
     # 2. via common install locations (absolute paths, no PATH needed)
     $candidates = @(
+        (Join-Path $DepsRoot 'python\python.exe'),
         (Join-Path $env:LOCALAPPDATA 'Python\bin\python.exe'),
         (Join-Path $env:LOCALAPPDATA 'Programs\Python\*\python.exe'),
         'C:\Python*\python.exe',
@@ -190,7 +239,10 @@ function Find-Wproj {
 function Find-Ffmpeg {
     $cmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    foreach ($p in @('C:\Program Files\ffmpeg\bin\ffmpeg.exe', 'C:\ffmpeg\bin\ffmpeg.exe')) {
+    foreach ($p in @(
+            (Join-Path $DepsRoot 'ffmpeg\bin\ffmpeg.exe'),
+            'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
+            'C:\ffmpeg\bin\ffmpeg.exe')) {
         if (Test-Path -LiteralPath $p) { return $p }
     }
     return $null
@@ -199,7 +251,10 @@ function Find-Ffmpeg {
 function Find-Ffprobe {
     $cmd = Get-Command ffprobe -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    foreach ($p in @('C:\Program Files\ffmpeg\bin\ffprobe.exe', 'C:\ffmpeg\bin\ffprobe.exe')) {
+    foreach ($p in @(
+            (Join-Path $DepsRoot 'ffmpeg\bin\ffprobe.exe'),
+            'C:\Program Files\ffmpeg\bin\ffprobe.exe',
+            'C:\ffmpeg\bin\ffprobe.exe')) {
         if (Test-Path -LiteralPath $p) { return $p }
     }
     return $null
@@ -290,6 +345,8 @@ $py     = Find-Python
 $ww     = Find-WwiseConsole
 $wproj  = Find-Wproj
 $gameDirFound = Find-Hd2GameDir
+$ffmpegExe  = Find-Ffmpeg
+$ffprobeExe = Find-Ffprobe
 
 # ---- vanilla notice video: bundled when present, otherwise rebuilt from the player's game ----
 # The notice is Helldivers 2 game data, so it is deliberately NOT redistributed with this
@@ -332,28 +389,39 @@ $builtin = @(
     @{ n = 'encode.ps1';      p = $EncodePs1 }
 )
 $builtinOk = $true
-W "[1] built-in tools" "Yellow"
+if ($verboseDeps) { W "[1] built-in tools" "Yellow" }
 foreach ($b in $builtin) {
-    if (Test-Path -LiteralPath $b.p) { W ("  [OK]   " + $b.n) "Green" }
+    if (Test-Path -LiteralPath $b.p) { if ($verboseDeps) { W ("  [OK]   " + $b.n) "Green" } }
     else { W ("  [MISS] " + $b.n + "  <- " + $b.p) "Red"; $builtinOk = $false }
 }
 
-W "[2] radvideo64 (video encoder)" "Yellow"
-if ($rv) { W "  [OK]   $rv" "Green" }
+if ($verboseDeps) { W "[2] radvideo64 (video encoder)" "Yellow" }
+if ($rv) { if ($verboseDeps) { W "  [OK]   $rv" "Green" } }
 else { W "  [MISS] Install RAD Video Tools (free) from https://www.radgametools.com/bnkdown.htm" "Red"
        W "         or drop radvideo64.exe into: $Root" "Red" }
 
-W "[3] python (packager)" "Yellow"
-if ($py) { W "  [OK]   $py" "Green" }
+if ($verboseDeps) { W "[3] python (packager)" "Yellow" }
+if ($py) { if ($verboseDeps) { W "  [OK]   $py" "Green" } }
 else { W "  [MISS] Install Python 3 from https://www.python.org/downloads/ (tick 'Add to PATH')" "Red" }
 
-W "[4] audio" "Yellow"
+if ($verboseDeps) { W "[4] ffmpeg + ffprobe (resolution guards)" "Yellow" }
+if ($ffmpegExe -and $ffprobeExe) { if ($verboseDeps) { W "  [OK]   $ffmpegExe" "Green" } }
+else {
+    W "  [MISS] ffmpeg/ffprobe not found." "Red"
+    W "         Without ffprobe the source resolution cannot be inspected, so the script" "Red"
+    W "         cannot tell whether a source needs rescaling - and a source below 720p" "Red"
+    W "         produces a mod that shows corrupted video in game. Both are required." "Red"
+    W "         Easiest: open the GUI and use its dependency panel." "DarkGray"
+    W "         Or run: powershell -ExecutionPolicy Bypass -File tools\deps.ps1 -Download -Which ffmpeg" "DarkGray"
+}
+
+if ($verboseDeps) { W "[5] audio" "Yellow" }
 if ($Wem) {
-    if (Test-Path -LiteralPath $Wem) { W "  [OK]   ready-made wem: $Wem" "Green" }
+    if (Test-Path -LiteralPath $Wem) { if ($verboseDeps) { W "  [OK]   ready-made wem: $Wem" "Green" } }
     else { W "  [FATAL] -Wem file not found: $Wem" "Red"; Stop-Script 1 }
 } elseif ($ww -and $wproj) {
-    W "  [OK]   WwiseConsole: $ww" "Green"
-    W "  [OK]   wproj: $wproj" "Green"
+    if ($verboseDeps) { W "  [OK]   WwiseConsole: $ww" "Green" }
+    if ($verboseDeps) { W "  [OK]   wproj: $wproj" "Green" }
 } else {
     if (-not $ww)  { W "  [MISS] WwiseConsole.exe (Wwise, free, needs Audiokinetic account; recommended 2023.1.7)" "Red"
                      W "         download: https://www.audiokinetic.com/download/  (install, then rerun)" "Red" }
@@ -366,7 +434,7 @@ if ($Wem) {
 # RAD Game Tools / Epic Games Tools DLL, so it is deliberately NOT shipped with this
 # package. We take the copy the game itself installed and stage both tools plus that DLL
 # in a temp work dir - neither the package folder nor the game folder gets touched.
-W "[5] bink2w64.dll (audio extraction + decode check)" "Yellow"
+if ($verboseDeps) { W "[6] bink2w64.dll (audio extraction + decode check)" "Yellow" }
 $binkDll = Find-BinkDll
 $BinkWorkExe  = $BinkExtract
 $BinkWorkTest = $BinkTest
@@ -379,7 +447,7 @@ if ($binkDll) {
     Copy-Item -LiteralPath $binkDll     -Destination $BinkWorkDir -Force
     $BinkWorkExe  = Join-Path $BinkWorkDir 'BinkExtractAudio.exe'
     $BinkWorkTest = Join-Path $BinkWorkDir 'binktest.exe'
-    W "  [OK]   $binkDll" "Green"
+    if ($verboseDeps) { W "  [OK]   $binkDll" "Green" }
 } else {
     W "  [MISS] bink2w64.dll not found - audio cannot be extracted from the video." "Red"
     W "         Every Helldivers 2 install has it at <game>\bin\bink2w64.dll" "DarkGray"
@@ -393,12 +461,24 @@ if (-not $builtinOk) { $fatal += 'built-in assets missing (incomplete package)' 
 if (-not $rv)        { $fatal += 'radvideo64.exe missing' }
 if (-not $py)        { $fatal += 'python missing' }
 if (-not $Wem -and (-not $ww -or -not $wproj)) { $fatal += 'audio not available (no -Wem, no Wwise+wproj)' }
+if (-not $ffmpegExe -or -not $ffprobeExe) { $fatal += 'ffmpeg/ffprobe missing (needed so that any resolution still yields a usable mod)' }
 if ($fatal.Count -gt 0) {
+    Remove-Item -LiteralPath $DepsStamp -Force -ErrorAction SilentlyContinue
     W "" "Red"
     W "Blocked - fix the following, then rerun:" "Red"
     foreach ($f in $fatal) { W "  - $f" "Red" }
+    W "" "Yellow"
+    W "Missing pieces can be fetched from the GUI dependency panel, or with:" "Yellow"
+    W "  powershell -ExecutionPolicy Bypass -File tools\deps.ps1 -Download -Which ffmpeg,python" "DarkGray"
     Stop-Script 1
 }
+
+# The stamp only means "this machine has everything the pipeline needs": it is written
+# once the dependency gate is passed, and dropped again by any blocked run so that the
+# next attempt prints the full checklist.
+New-Item -ItemType Directory -Path $DepsRoot -Force | Out-Null
+try { Set-Content -LiteralPath $DepsStamp -Value ((Get-Date).ToString('s')) -Encoding ascii -ErrorAction SilentlyContinue } catch { }
+if (-not $verboseDeps) { W "[deps] all dependencies present (cached; delete deps\.deps-ok to list everything)" "DarkGray" }
 
 # ---- remember Wwise path (and the game dir, so the next run skips the search) ----
 if ($ww -and -not $cfg.wwise) { $cfg.wwise = $ww }
@@ -428,8 +508,6 @@ $ReEnc2k = Join-Path $Out 'reencoded-2k60.mp4'
 
 # ---- resolution/fps guards: <720p upscale to 1280x720 (kit pitfall #15: corrupts in-game);
 #      4K >60fps downscale to 2560x1440@60 (bink encode of 4K120 takes ~1h+, 2K60 is ~4x faster) ----
-$ffmpegExe = Find-Ffmpeg
-$ffprobeExe = Find-Ffprobe
 if ($ffmpegExe -and $ffprobeExe) {
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
@@ -466,7 +544,11 @@ if ($ffmpegExe -and $ffprobeExe) {
                 $Video = $ReEnc
                 W "  [OK]   re-encoded to 1280x720" "Green"
             } else {
-                W "  [WARN] ffmpeg re-encode failed (exit $ffExit) - continuing with original (may corrupt in-game)" "Red"
+                W "  [FATAL] ffmpeg rescale failed (exit $ffExit)." "Red"
+                W "          A source below 720p cannot be used as-is: the game shows corrupted" "Red"
+                W "          video. Refusing to produce an unusable mod." "Red"
+                Move-FailedOutput -Dir $Out -Reason "ffmpeg rescale of a below-720p source failed (exit $ffExit)"
+                Stop-Script 1
             }
         } elseif ($srcH -gt 1440 -or $fps -gt 60) {
             # Caps: 2560x1440 and 60fps (frame rate follows the source below that).
@@ -484,7 +566,9 @@ if ($ffmpegExe -and $ffprobeExe) {
                 $Video = $ReEnc2k
                 W "  [OK]   re-encoded (bink encode time cut dramatically)" "Green"
             } else {
-                W "  [WARN] ffmpeg re-encode failed (exit $ffExit) - continuing with original (very slow encode)" "Red"
+                W "  [WARN] ffmpeg downscale failed (exit $ffExit) - continuing with the original." "Yellow"
+                W "         The mod will still be valid, but bink2c is CPU-only: an oversized" "Yellow"
+                W "         source can take a very long time (the encoder timeout is 2 hours)." "Yellow"
             }
         }
     }
@@ -507,9 +591,16 @@ $fm = [regex]::Match((($ana | Out-String)), 'fl=0x([0-9A-Fa-f]+)')
 if ($fm.Success) {
     $flags = [Convert]::ToUInt32($fm.Groups[1].Value, 16)
     if ($flags -eq 0x40012) { $flagsOk = $true; W "  [OK]   flags=0x40012 (game-compatible)" "Green" }
-    else { W "  [WARN] flags=0x$($flags.ToString('X'))  (must be 0x40012) - re-encode with /V6344" "Red" }
+    else {
+        W "  [FATAL] flags=0x$($flags.ToString('X')) - the game requires 0x40012 and may crash otherwise." "Red"
+        W "          Refusing to produce a mod that can crash the game." "Red"
+        Move-FailedOutput -Dir $Out -Reason "encoded .bk2 has flags=0x$($flags.ToString('X')) instead of 0x40012"
+        Stop-Script 1
+    }
 } else {
-    W "  [WARN] could not parse flags" "Yellow"
+    W "  [FATAL] could not read the .bk2 flags - the mod cannot be verified as game-compatible." "Red"
+    Move-FailedOutput -Dir $Out -Reason "could not parse the .bk2 flags"
+    Stop-Script 1
 }
 
 # ================= 2. audio =================
@@ -523,7 +614,8 @@ if ($Wem) {
     $Wav = Join-Path $Out 'audio.wav'
     W "  extracting BINK track -> wav..." "Yellow"
     if (-not $binkDll) {
-        W "  [FATAL] bink2w64.dll is required to read the BINK audio track (see [5] above)." "Red"
+        Remove-Item -LiteralPath $DepsStamp -Force -ErrorAction SilentlyContinue
+        W "  [FATAL] bink2w64.dll is required to read the BINK audio track (see [6] above)." "Red"
         W "         Point the script at your game with -GameDir, or pass -Wem with a ready-made wem." "Red"
         Stop-Script 1
     }
@@ -559,10 +651,17 @@ if ($LASTEXITCODE -ne 0) { W "[FATAL] package failed" "Red"; Stop-Script 1 }
 W "" "Cyan"
 W "[4/4] Verify (full-frame decode)..." "Yellow"
 if (-not $binkDll) {
-    W "  [SKIP] no bink2w64.dll available (see [5] above)" "DarkGray"
+    W "  [SKIP] no bink2w64.dll - the full-frame decode check was NOT performed (see [6] above)." "Yellow"
+    W "         The mod was built, but its video could not be verified frame by frame." "Yellow"
 } else {
     & $BinkWorkTest $Bk2 3000
-    if ($LASTEXITCODE -eq 0) { W "  [OK]   decode passed" "Green" } else { W "  [WARN] decode exited non-zero (check above)" "Yellow" }
+    if ($LASTEXITCODE -eq 0) { W "  [OK]   decode passed" "Green" }
+    else {
+        W "  [FATAL] full-frame decode failed - the produced .bk2 is damaged." "Red"
+        W "          Refusing to ship a broken mod." "Red"
+        Move-FailedOutput -Dir $Out -Reason "binktest full-frame decode failed (exit $LASTEXITCODE)"
+        Stop-Script 1
+    }
 }
 
 # ---- clean up intermediate files (keep only the final patch + stream) ----

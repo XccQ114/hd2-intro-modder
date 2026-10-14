@@ -33,6 +33,12 @@ RADVideo/
 radtools.exe
 Wwise/
 
+# ---- dependencies fetched by the GUI (ffmpeg / python embeddable) ----
+# deps.ps1 unpacks them here (or into <other drive>\hd2-intro-modder-deps when the
+# project itself sits on the system drive). Never commit downloaded binaries.
+deps/
+hd2-intro-modder-deps/
+
 # ---- build/test byproducts ----
 *.zip
 *.bk2

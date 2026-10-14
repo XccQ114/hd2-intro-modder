@@ -9,8 +9,13 @@
 | RAD Video Tools (radvideo64.exe) | 仅检测 | https://www.radgametools.com/bnkdown.htm |
 | Python 3 | 仅检测 | https://www.python.org/downloads/ |
 | **《绝地潜兵 2》本体**(提供 `bin\bink2w64.dll`,并用于重建原版告示视频) | **自动定位** | 你已经在玩这个游戏 :) |
-| Wwise（仅换音频需要） | 仅检测 | https://www.audiokinetic.com/download/ |
-| ffmpeg/ffprobe（仅重压/降级需要） | 仅检测 | https://ffmpeg.org/download.html |
+| Wwise（默认流程必需；自备 `.wem` 可跳过） | 仅检测 | https://www.audiokinetic.com/download/ |
+| ffmpeg/ffprobe（**必需**：保证任意分辨率都能出可用成品） | 仅检测，**可代下载** | https://ffmpeg.org/download.html |
+
+> **首次运行**会打印完整依赖清单；之后只要没被阻断，就只提示一行（删掉 `deps\.deps-ok` 可强制重新列出）。
+> 缺 **ffmpeg / Python** 时，打开 GUI 点「依赖检查」：程序会列出缺什么、逐条探测各下载源是否可达，并在你确认后下载解压到 `deps\`（若项目本身在系统盘，则改放到其他固定盘，避免占用 C 盘）。
+> RAD Video Tools 与 Wwise 属于商业软件或需要账号，无法代下载，GUI 只给出官方地址。
+> **本工具不会输出不可用的成品**：源视频低于 720p 却无法重压、编码后 `flags != 0x40012`、全帧解码校验失败，都会直接阻断并把半成品移进 `output\failed\`（最多保留 10 份，超出按时间清理）。
 
 内置（无需安装）：binktest 工具、封装脚本、基底容器 + 原版告示、Wwise Audio Conversion 项目（`wwise-project\`）。
 
@@ -120,8 +125,13 @@ Turn a MP4 into a Helldivers 2 intro-replacement mod (one command).
 | RAD Video Tools (radvideo64.exe) | detect only | https://www.radgametools.com/bnkdown.htm |
 | Python 3 | detect only | https://www.python.org/downloads/ |
 | **Helldivers 2 itself** (supplies `bin\bink2w64.dll`, and the source data for the notice video) | **auto-located** | you already own the game :) |
-| Wwise (audio conversion only) | detect only | https://www.audiokinetic.com/download/ |
-| ffmpeg/ffprobe (rescale / downscale only) | detect only | https://ffmpeg.org/download.html |
+| Wwise (required by the default flow; skip it with a ready-made `.wem`) | detect only | https://www.audiokinetic.com/download/ |
+| ffmpeg/ffprobe (**required** - guarantees a usable mod at any resolution) | detect only, **can be fetched for you** | https://ffmpeg.org/download.html |
+
+> **The first run** prints the full dependency checklist; later runs only print one summary line as long as nothing was blocked (delete `deps\.deps-ok` to force the full list again).
+> If **ffmpeg / Python** is missing, open the GUI and press "dependency check": it lists what is missing, probes every mirror, and - after you confirm - downloads and unpacks into `deps\` (or into another fixed drive when the project itself sits on the system drive).
+> RAD Video Tools and Wwise are commercial / account-gated and cannot be fetched automatically; the GUI only points you at the official download pages.
+> **This tool never hands you an unusable mod**: a source below 720p that cannot be rescaled, `flags != 0x40012`, or a failed full-frame decode all stop the build and quarantine the half-built output into `output\failed\` (newest 10 kept).
 
 Built-in (no install): binktest tools, packager scripts, the base container template, and a Wwise Audio Conversion project (`wwise-project\`).
 

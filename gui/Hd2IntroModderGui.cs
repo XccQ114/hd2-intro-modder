@@ -11,8 +11,14 @@
 //  3. build-mod.ps1 pauses with Read-Host at every exit point. Closing the child's
 //     stdin right after start makes Read-Host return immediately instead of hanging
 //     the GUI forever waiting for a keypress nobody can give.
+//
+// The dependency panel follows the same rule as (1): tools\deps.ps1 owns the whole
+// detection / mirror-probing / download logic, this window only drives it and renders
+// the result. deps.ps1 is kept pure ASCII (Windows PowerShell parses BOM-less scripts
+// with the ANSI code page), so every Chinese string shown here is keyed by dependency id.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
@@ -31,6 +37,7 @@ namespace Hd2IntroModder
         private CheckBox chkZip;
         private Button btnStart;
         private Button btnOpenOut;
+        private Button btnDeps;
         private RichTextBox txtLog;
         private Label lblStatus;
         private Label lblHint;
@@ -146,9 +153,16 @@ namespace Hd2IntroModder
             btnOpenOut.Click += delegate { OpenOutputDir(); };
             Controls.Add(btnOpenOut);
 
+            btnDeps = new Button();
+            btnDeps.Text = "依赖检查";
+            btnDeps.Location = new Point(338, 200);
+            btnDeps.Size = new Size(150, 34);
+            btnDeps.Click += delegate { OpenDeps(); };
+            Controls.Add(btnDeps);
+
             lblStatus = new Label();
             lblStatus.Text = "就绪";
-            lblStatus.Location = new Point(342, 210);
+            lblStatus.Location = new Point(502, 210);
             lblStatus.AutoSize = true;
             lblStatus.Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold);
             Controls.Add(lblStatus);
@@ -227,6 +241,7 @@ namespace Hd2IntroModder
                 lblStatus.Text = "未找到 build-mod.ps1";
                 lblHint.Text = "请把本 EXE 放在 hd2-intro-modder 项目目录（与 build-mod.ps1 同级）后重新运行。";
                 btnStart.Enabled = false;
+                btnDeps.Enabled = false;
                 AppendLog("[ERROR] build-mod.ps1 not found next to the EXE.");
                 AppendLog("        exe dir: " + exeDir);
             }
@@ -238,7 +253,68 @@ namespace Hd2IntroModder
                 AppendLog("");
                 AppendLog("先选一个 MP4，然后点「开始生成」。编码期间 radvideo64 会弹出它自己的窗口，属正常现象。");
                 AppendLog("");
+                CheckDepsQuietly();
             }
+        }
+
+        /// <summary>Runs the dependency check off the UI thread and reports any gap.</summary>
+        private void CheckDepsQuietly()
+        {
+            string depsScript = Path.Combine(Path.Combine(rootDir, "tools"), "deps.ps1");
+            if (!File.Exists(depsScript)) return;
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                List<DepInfo> list = DepsForm.QueryDeps(depsScript);
+                if (list == null) return;
+                int missing = 0;
+                int missingAuto = 0;
+                foreach (DepInfo d in list)
+                {
+                    if (!d.Installed)
+                    {
+                        missing++;
+                        if (d.Auto) missingAuto++;
+                    }
+                }
+                try
+                {
+                    BeginInvoke(new Action(delegate
+                    {
+                        if (missing == 0)
+                        {
+                            btnDeps.Text = "依赖检查 (齐全)";
+                        }
+                        else
+                        {
+                            btnDeps.Text = "依赖检查 (" + missing + " 项缺失)";
+                            btnDeps.ForeColor = Color.Firebrick;
+                            lblStatus.Text = "缺少 " + missing + " 项依赖";
+                            lblHint.Text = missingAuto > 0
+                                ? "有 " + missingAuto + " 项可以由本程序代为下载：请点「依赖检查」。"
+                                : "请点「依赖检查」查看缺什么以及在哪里获取。";
+                        }
+                    }));
+                }
+                catch { }
+            });
+        }
+
+        private void OpenDeps()
+        {
+            string depsScript = Path.Combine(Path.Combine(rootDir, "tools"), "deps.ps1");
+            if (!File.Exists(depsScript))
+            {
+                MessageBox.Show(this, "找不到 tools\\deps.ps1。\r\n请确认使用的是完整发布包。", "缺少文件",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            using (DepsForm f = new DepsForm(depsScript, rootDir))
+            {
+                f.ShowDialog(this);
+            }
+            btnDeps.ForeColor = SystemColors.ControlText;
+            btnDeps.Text = "依赖检查";
+            CheckDepsQuietly();
         }
 
         private void BrowseInto(TextBox target, string filter)
@@ -270,7 +346,7 @@ namespace Hd2IntroModder
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "无法打开目录"); }
         }
 
-        private static Encoding ConsoleEncoding()
+        internal static Encoding ConsoleEncoding()
         {
             // PowerShell 5.1 writes redirected output in the system ANSI code page.
             try
@@ -385,7 +461,7 @@ namespace Hd2IntroModder
             else
             {
                 lblStatus.Text = "失败 (exit " + exitCode + ")";
-                lblHint.Text = "把上面的日志内容发出来即可定位问题。详细日志也会留在 log\\ 目录里。";
+                lblHint.Text = "脚本拒绝输出不可用的成品。看上面的日志：若提示缺少依赖，请点「依赖检查」。";
             }
         }
 
@@ -400,6 +476,622 @@ namespace Hd2IntroModder
             {
                 txtLog.Select(0, MaxLogChars / 4);
                 txtLog.SelectedText = "";
+            }
+            txtLog.AppendText(line + "\r\n");
+            txtLog.SelectionStart = txtLog.TextLength;
+            txtLog.ScrollToCaret();
+        }
+    }
+
+    /// <summary>One dependency as reported by tools\deps.ps1.</summary>
+    public class DepInfo
+    {
+        public string Id = "";
+        public string Name = "";
+        public bool Installed;
+        public bool Auto;
+        public string Condition = "";
+        public string Note = "";
+        public string Url = "";
+        public string Path = "";
+        public string[] Sources = new string[0];
+    }
+
+    /// <summary>
+    /// Dependency panel. Detection, mirror probing and downloading are all performed by
+    /// tools\deps.ps1; this window only renders the result and asks the user before any
+    /// download happens.
+    /// </summary>
+    public class DepsForm : Form
+    {
+        private DataGridView grid;
+        private TextBox txtLog;
+        private Button btnTest;
+        private Button btnDownload;
+        private Button btnRefresh;
+        private Button btnClose;
+        private Label lblRoot;
+        private Label lblDetail;
+
+        private readonly string depsScript;
+        private readonly string projectRoot;
+        private Process proc;
+        private List<DepInfo> deps = new List<DepInfo>();
+        private string depsRoot = "";
+
+        public DepsForm(string depsScriptPath, string projectRootDir)
+        {
+            depsScript = depsScriptPath;
+            projectRoot = projectRootDir;
+
+            Text = "依赖检查 - hd2-intro-modder";
+            ClientSize = new Size(880, 640);
+            MinimumSize = new Size(760, 520);
+            StartPosition = FormStartPosition.CenterParent;
+            Font = SystemFonts.MessageBoxFont;
+            ShowInTaskbar = false;
+
+            Label l1 = new Label();
+            l1.Text = "生成一个游戏内可用的 mod 需要以下依赖。标记为「可代下载」的项，"
+                + "在你确认后由本程序下载并解压到下面的目录（不写系统盘）。";
+            l1.Location = new Point(14, 12);
+            l1.Size = new Size(852, 32);
+            l1.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            Controls.Add(l1);
+
+            lblRoot = new Label();
+            lblRoot.Text = "下载目录：检测中...";
+            lblRoot.Location = new Point(14, 46);
+            lblRoot.AutoSize = true;
+            lblRoot.ForeColor = SystemColors.GrayText;
+            Controls.Add(lblRoot);
+
+            grid = new DataGridView();
+            grid.Location = new Point(14, 70);
+            grid.Size = new Size(852, 236);
+            grid.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            grid.AllowUserToAddRows = false;
+            grid.AllowUserToDeleteRows = false;
+            grid.AllowUserToResizeRows = false;
+            grid.RowHeadersVisible = false;
+            grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            grid.MultiSelect = false;
+            grid.BackgroundColor = SystemColors.Window;
+            grid.EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2;
+            // Cell text used to be clipped to "4304..." (a full URL, or "官网 可达 000 · 4304ms").
+            // Wrap it and let the row grow taller instead of truncating, and let the address
+            // column absorb horizontal resizing so the table tracks the window width.
+            grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells;
+            grid.DefaultCellStyle.WrapMode = DataGridViewTriState.True;
+            grid.ShowCellToolTips = true;
+            grid.SelectionChanged += delegate { ShowDetail(); };
+
+            DataGridViewTextBoxColumn cName = new DataGridViewTextBoxColumn();
+            cName.Name = "name";
+            cName.HeaderText = "依赖";
+            cName.Width = 190;
+            cName.ReadOnly = true;
+            grid.Columns.Add(cName);
+
+            DataGridViewTextBoxColumn cState = new DataGridViewTextBoxColumn();
+            cState.Name = "state";
+            cState.HeaderText = "状态";
+            cState.Width = 70;
+            cState.ReadOnly = true;
+            grid.Columns.Add(cState);
+
+            DataGridViewCheckBoxColumn cPick = new DataGridViewCheckBoxColumn();
+            cPick.Name = "pick";
+            cPick.HeaderText = "下载";
+            cPick.Width = 45;
+            grid.Columns.Add(cPick);
+
+            DataGridViewTextBoxColumn cUrl = new DataGridViewTextBoxColumn();
+            cUrl.Name = "url";
+            cUrl.HeaderText = "下载地址（可自行改成你信任的镜像）";
+            // Fill so this column takes (or gives back) every pixel the window gains or loses;
+            // the other columns keep fixed widths.
+            cUrl.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            cUrl.FillWeight = 100;
+            cUrl.MinimumWidth = 180;
+            grid.Columns.Add(cUrl);
+
+            DataGridViewTextBoxColumn cReach = new DataGridViewTextBoxColumn();
+            cReach.Name = "reach";
+            cReach.HeaderText = "源可达性";
+            cReach.Width = 140;
+            cReach.ReadOnly = true;
+            grid.Columns.Add(cReach);
+
+            Controls.Add(grid);
+
+            btnTest = new Button();
+            btnTest.Text = "检测下载源";
+            btnTest.Location = new Point(14, 314);
+            btnTest.Size = new Size(120, 30);
+            btnTest.Click += delegate { RunTestSources(); };
+            Controls.Add(btnTest);
+
+            btnDownload = new Button();
+            btnDownload.Text = "下载所选...";
+            btnDownload.Location = new Point(144, 314);
+            btnDownload.Size = new Size(120, 30);
+            btnDownload.Click += delegate { RunDownload(); };
+            Controls.Add(btnDownload);
+
+            btnRefresh = new Button();
+            btnRefresh.Text = "刷新";
+            btnRefresh.Location = new Point(274, 314);
+            btnRefresh.Size = new Size(90, 30);
+            btnRefresh.Click += delegate { RunCheck(); };
+            Controls.Add(btnRefresh);
+
+            btnClose = new Button();
+            btnClose.Text = "关闭";
+            btnClose.Location = new Point(776, 314);
+            btnClose.Size = new Size(90, 30);
+            btnClose.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnClose.Click += delegate { Close(); };
+            Controls.Add(btnClose);
+
+            // The detail text length varies a lot (a long Wwise sentence plus a full install
+            // path), so its height is computed from the wrapped text and the log pane below
+            // follows it - see ReflowDetail().
+            lblDetail = new Label();
+            lblDetail.Location = new Point(14, 352);
+            lblDetail.Size = new Size(852, 34);
+            lblDetail.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            lblDetail.ForeColor = SystemColors.GrayText;
+            lblDetail.Text = "";
+            Controls.Add(lblDetail);
+
+            txtLog = new TextBox();
+            txtLog.Location = new Point(14, 394);
+            txtLog.Size = new Size(852, 232);
+            // Height is driven by ReflowDetail(), so no Bottom anchor here.
+            txtLog.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            txtLog.Multiline = true;
+            txtLog.ReadOnly = true;
+            txtLog.ScrollBars = ScrollBars.Both;
+            txtLog.WordWrap = false;
+            txtLog.BackColor = Color.FromArgb(20, 20, 20);
+            txtLog.ForeColor = Color.Gainsboro;
+            txtLog.Font = new Font("Consolas", 9F);
+            Controls.Add(txtLog);
+
+            FormClosing += OnFormClosing;
+            Resize += delegate { ReflowDetail(); };
+            Load += delegate { RunCheck(); };
+        }
+
+        /// <summary>
+        /// Sizes the detail label to the wrapped height of its text and pushes the log pane
+        /// down accordingly. Long entries (Wwise + a deep install path) used to be clipped.
+        /// </summary>
+        private void ReflowDetail()
+        {
+            string t = lblDetail.Text;
+            if (t == null) t = "";
+            int w = Math.Max(160, lblDetail.Width);
+            int want;
+            if (t.Length == 0)
+            {
+                want = 32;
+            }
+            else
+            {
+                // Measure without NoPadding: Label rendering needs at least the padded
+                // height, and under-measuring here is exactly what clipped the Wwise text.
+                Size sz = TextRenderer.MeasureText(t, lblDetail.Font, new Size(w, 4000),
+                    TextFormatFlags.WordBreak);
+                want = Math.Max(32, sz.Height + 8);
+            }
+            if (want != lblDetail.Height) lblDetail.Height = want;
+
+            int logTop = lblDetail.Bottom + 8;
+            int logHeight = ClientSize.Height - logTop - 14;
+            if (logHeight < 70) logHeight = 70;
+            txtLog.Location = new Point(txtLog.Left, logTop);
+            txtLog.Size = new Size(txtLog.Width, logHeight);
+        }
+
+        private void OnFormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (proc == null || proc.HasExited) return;
+            DialogResult r = MessageBox.Show(this,
+                "依赖下载仍在进行。强行关闭会中断下载（已下载的部分会被丢弃）。确定关闭吗？",
+                "下载进行中", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (r != DialogResult.Yes) { e.Cancel = true; return; }
+            try { proc.Kill(); } catch { }
+        }
+
+        // ------------------------------------------------------------ ps helpers
+
+        private string PsArguments(string tail)
+        {
+            return "-NoProfile -ExecutionPolicy Bypass -File \"" + depsScript + "\" " + tail;
+        }
+
+        /// <summary>Runs deps.ps1 synchronously and returns its stdout lines.</summary>
+        private List<string> RunSync(string tail)
+        {
+            List<string> lines = new List<string>();
+            ProcessStartInfo psi = new ProcessStartInfo("powershell.exe", PsArguments(tail));
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.RedirectStandardInput = true;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            Encoding enc = MainForm.ConsoleEncoding();
+            psi.StandardOutputEncoding = enc;
+            psi.StandardErrorEncoding = enc;
+            Process p = new Process();
+            p.StartInfo = psi;
+            try
+            {
+                p.Start();
+                try { p.StandardInput.Close(); } catch { }
+                string stdout = p.StandardOutput.ReadToEnd();
+                p.WaitForExit();
+                foreach (string s in stdout.Split('\n'))
+                {
+                    string t = s.TrimEnd('\r');
+                    if (t.Length > 0) lines.Add(t);
+                }
+            }
+            catch (Exception ex)
+            {
+                lines.Add("[ERROR] " + ex.Message);
+            }
+            finally
+            {
+                try { p.Dispose(); } catch { }
+            }
+            return lines;
+        }
+
+        /// <summary>Static variant used by the main window for its quiet startup check.</summary>
+        public static List<DepInfo> QueryDeps(string depsScriptPath)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo("powershell.exe",
+                    "-NoProfile -ExecutionPolicy Bypass -File \"" + depsScriptPath + "\" -Check -Lines");
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.RedirectStandardInput = true;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                Encoding enc = MainForm.ConsoleEncoding();
+                psi.StandardOutputEncoding = enc;
+                psi.StandardErrorEncoding = enc;
+                Process p = new Process();
+                p.StartInfo = psi;
+                p.Start();
+                try { p.StandardInput.Close(); } catch { }
+                string stdout = p.StandardOutput.ReadToEnd();
+                p.WaitForExit();
+                p.Dispose();
+                return ParseDeps(stdout.Split('\n'), null);
+            }
+            catch { return null; }
+        }
+
+        private static Dictionary<string, string> ParseFields(string line)
+        {
+            Dictionary<string, string> d = new Dictionary<string, string>();
+            string[] parts = line.Split('|');
+            for (int i = 1; i < parts.Length; i++)
+            {
+                int eq = parts[i].IndexOf('=');
+                if (eq > 0) d[parts[i].Substring(0, eq)] = parts[i].Substring(eq + 1);
+            }
+            return d;
+        }
+
+        private static List<DepInfo> ParseDeps(string[] lines, string[] rootOut)
+        {
+            List<DepInfo> list = new List<DepInfo>();
+            foreach (string raw in lines)
+            {
+                string line = raw.TrimEnd('\r');
+                if (line.Length == 0) continue;
+                if (line.StartsWith("DEP|"))
+                {
+                    Dictionary<string, string> f = ParseFields(line);
+                    DepInfo d = new DepInfo();
+                    if (f.ContainsKey("id")) d.Id = f["id"];
+                    if (f.ContainsKey("name")) d.Name = f["name"];
+                    if (f.ContainsKey("installed")) d.Installed = (f["installed"] == "1");
+                    if (f.ContainsKey("auto")) d.Auto = (f["auto"] == "1");
+                    if (f.ContainsKey("condition")) d.Condition = f["condition"];
+                    if (f.ContainsKey("note")) d.Note = f["note"];
+                    if (f.ContainsKey("url")) d.Url = f["url"];
+                    if (f.ContainsKey("path")) d.Path = f["path"];
+                    if (f.ContainsKey("sources") && f["sources"].Length > 0)
+                        d.Sources = f["sources"].Split(';');
+                    list.Add(d);
+                }
+                else if (line.StartsWith("CHECK|") && rootOut != null)
+                {
+                    Dictionary<string, string> f = ParseFields(line);
+                    if (f.ContainsKey("depsRoot")) rootOut[0] = f["depsRoot"];
+                    if (f.ContainsKey("gameDir") && rootOut.Length > 1) rootOut[1] = f["gameDir"];
+                }
+            }
+            return list;
+        }
+
+        // ------------------------------------------------------------ localized text
+        // deps.ps1 is pure ASCII on purpose; the Chinese wording lives here, keyed by id.
+
+        private static string ZhName(string id)
+        {
+            switch (id)
+            {
+                case "radvideo64": return "RAD Video Tools（编码器）";
+                case "python": return "Python 3（打包）";
+                case "ffmpeg": return "ffmpeg + ffprobe（分辨率）";
+                case "wwise": return "Wwise（音频转 wem）";
+                case "binkdll": return "bink2w64.dll（游戏自带）";
+            }
+            return id;
+        }
+
+        private static string ZhCondition(string id)
+        {
+            switch (id)
+            {
+                case "radvideo64": return "必需：把视频压成游戏能读的 Bink 格式（bink2c）。缺少则无法生成。";
+                case "python": return "必需：打包 patch 容器。免安装版即可，本项目脚本只用标准库。";
+                case "ffmpeg": return "必需：低于 720p 要重压（否则游戏内花屏）、超过 1440p/60fps 要降级（否则编码时间过长）。";
+                case "wwise": return "必需：把视频音轨转成游戏读取的 .wem。若你已有现成 wem，可用「现成 wem」栏跳过。";
+                case "binkdll": return "必需：从 .bk2 提取 BINK 音轨；缺失时最终的全帧解码校验会被跳过。";
+            }
+            return "";
+        }
+
+        private static string ZhNote(string id, string installedPath)
+        {
+            switch (id)
+            {
+                case "radvideo64":
+                    return "商业软件（可免费使用）。官方只提供安装程序，无法代下载。装完重开本窗口即可识别。";
+                case "python":
+                    return "可代下载：官方免安装版（约 11 MB），解压即用，不写注册表。";
+                case "ffmpeg":
+                    return "可代下载：官方发行包（约 80~150 MB），解压后用它的 bin 目录，不装进系统。";
+                case "wwise":
+                    return "需要注册 Audiokinetic 账号后经 Wwise Launcher 安装，无法代下载。";
+                case "binkdll":
+                    return "商业 DLL，本项目不分发。脚本会自动读取你的《绝地潜兵 2》安装目录。";
+            }
+            return "";
+        }
+
+        private static string ZhState(DepInfo d)
+        {
+            if (d.Installed) return "已安装";
+            return d.Auto ? "缺失" : "缺失(需手动)";
+        }
+
+        // ------------------------------------------------------------ actions
+
+        private void RunCheck()
+        {
+            btnRefresh.Enabled = false;
+            LogLine("$ deps.ps1 -Check -Lines");
+            string[] rootOut = new string[2];
+            List<string> lines = RunSync("-Check -Lines");
+            deps = ParseDeps(lines.ToArray(), rootOut);
+            depsRoot = rootOut[0] == null ? "" : rootOut[0];
+            if (deps.Count == 0)
+            {
+                LogLine("没有解析到任何依赖信息。请确认 tools\\deps.ps1 存在且可运行。");
+                foreach (string l in lines) LogLine(l);
+            }
+            else
+            {
+                lblRoot.Text = "下载目录：" + depsRoot + (rootOut[1] != null && rootOut[1].Length > 0 ? "    （已定位游戏：" + rootOut[1] + "）" : "");
+                FillGrid();
+                int missing = 0;
+                foreach (DepInfo d in deps) if (!d.Installed) missing++;
+                LogLine(missing == 0 ? "全部依赖已就绪。" : ("有 " + missing + " 项依赖缺失。"));
+            }
+            btnRefresh.Enabled = true;
+        }
+
+        private void FillGrid()
+        {
+            grid.Rows.Clear();
+            foreach (DepInfo d in deps)
+            {
+                int idx = grid.Rows.Add();
+                DataGridViewRow row = grid.Rows[idx];
+                row.Cells["name"].Value = ZhName(d.Id);
+                row.Cells["state"].Value = ZhState(d);
+                if (d.Installed) row.Cells["state"].Style.ForeColor = Color.ForestGreen;
+                else row.Cells["state"].Style.ForeColor = Color.Firebrick;
+                row.Cells["pick"].Value = false;
+                row.Cells["pick"].ReadOnly = !d.Auto || d.Installed;
+                string url = d.Url;
+                if (d.Sources.Length > 0) url = d.Sources[0];
+                row.Cells["url"].Value = url.Length > 0 ? url : "（来自游戏本体，无需下载）";
+                row.Cells["url"].ReadOnly = !d.Auto || url.Length == 0;
+                row.Cells["reach"].Value = "";
+                row.Tag = d;
+            }
+            if (grid.Rows.Count > 0) grid.Rows[0].Selected = true;
+        }
+
+        private void ShowDetail()
+        {
+            if (grid.SelectedRows.Count == 0) { lblDetail.Text = ""; return; }
+            DepInfo d = grid.SelectedRows[0].Tag as DepInfo;
+            if (d == null) { lblDetail.Text = ""; return; }
+            string s = ZhCondition(d.Id);
+            if (d.Installed && d.Path.Length > 0) s = s + "\r\n已找到：" + d.Path;
+            lblDetail.Text = s + "\r\n" + ZhNote(d.Id, d.Path);
+            ReflowDetail();
+        }
+
+        private void RunTestSources()
+        {
+            btnTest.Enabled = false;
+            LogLine("");
+            LogLine("$ deps.ps1 -TestSources -Lines  （逐个探测下载源，可能要等十几秒）");
+            List<string> lines = RunSync("-TestSources -Lines");
+            int ok = 0, fail = 0;
+            Dictionary<string, List<string>> byId = new Dictionary<string, List<string>>();
+            foreach (string line in lines)
+            {
+                if (!line.StartsWith("SRC|")) continue;
+                Dictionary<string, string> f = ParseFields(line);
+                string id = f.ContainsKey("id") ? f["id"] : "";
+                bool isOk = f.ContainsKey("ok") && f["ok"] == "1";
+                bool isDownload = f.ContainsKey("kind") && f["kind"] == "download";
+                string txt = (isOk ? "可达 " : "不可达 ") + (f.ContainsKey("http") ? f["http"] : "?")
+                    + " · " + (f.ContainsKey("ms") ? f["ms"] : "?") + "ms";
+                if (isOk) ok++; else fail++;
+                LogLine("  [" + id + "] " + (isDownload ? "下载源 " : "官网   ") + txt
+                    + "  " + (f.ContainsKey("url") ? f["url"] : ""));
+                if (!byId.ContainsKey(id)) byId[id] = new List<string>();
+                byId[id].Add((isDownload ? "" : "官网 ") + txt);
+            }
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                DepInfo d = row.Tag as DepInfo;
+                if (d == null || !byId.ContainsKey(d.Id)) continue;
+                row.Cells["reach"].Value = byId[d.Id][0];
+                bool any = false;
+                foreach (string t in byId[d.Id]) if (t.IndexOf("可达") >= 0) any = true;
+                row.Cells["reach"].Style.ForeColor = any ? Color.ForestGreen : Color.Firebrick;
+            }
+            LogLine("探测完成：可达 " + ok + " 个，不可达 " + fail + " 个。");
+            if (ok == 0 && fail > 0)
+                LogLine("所有镜像都不可达。可以手动把「下载地址」改成你能访问的镜像（任意提供同名压缩包的地址）。");
+            btnTest.Enabled = true;
+        }
+
+        private void RunDownload()
+        {
+            List<DepInfo> picked = new List<DepInfo>();
+            List<string> urls = new List<string>();
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                DepInfo d = row.Tag as DepInfo;
+                if (d == null || !d.Auto || d.Installed) continue;
+                object v = row.Cells["pick"].Value;
+                if (v is bool && (bool)v)
+                {
+                    picked.Add(d);
+                    object u = row.Cells["url"].Value;
+                    urls.Add(u == null ? "" : u.ToString().Trim());
+                }
+            }
+            if (picked.Count == 0)
+            {
+                MessageBox.Show(this, "请先勾选要下载的依赖。\r\n只有「缺失」且可代下载的项才能勾选。",
+                    "未选择", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            StringBuilder list = new StringBuilder();
+            StringBuilder srcMap = new StringBuilder();   // "id=url;id=url" - never json; see deps.ps1
+            for (int i = 0; i < picked.Count; i++)
+            {
+                string u = urls[i];
+                if (u.Length == 0) u = picked[i].Url;
+                list.Append("  - " + ZhName(picked[i].Id) + "\r\n      " + u + "\r\n");
+                if (i > 0) srcMap.Append(";");
+                srcMap.Append(picked[i].Id + "=" + u);
+            }
+
+            string msg = "即将下载以下依赖：\r\n\r\n" + list.ToString()
+                + "\r\n保存位置：" + depsRoot + "\r\n\r\n"
+                + "下载来源为上述第三方官方发行地址，本程序只做下载与解压，不安装、不写系统目录、不改注册表。\r\n\r\n"
+                + "确认开始下载吗？";
+            if (MessageBox.Show(this, msg, "确认下载依赖", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+                != DialogResult.Yes) return;
+
+            StringBuilder which = new StringBuilder();
+            for (int i = 0; i < picked.Count; i++)
+            {
+                if (i > 0) which.Append(",");
+                which.Append(picked[i].Id);
+            }
+
+            // -Source carries "id=url;id=url" (no inner quotes), which survives the
+            // Windows command line intact.
+            string tail = "-Download -Which " + which.ToString() + " -Source \"" + srcMap.ToString() + "\"";
+            StartStream(tail);
+        }
+
+        private void StartStream(string tail)
+        {
+            if (proc != null && !proc.HasExited) return;
+            string arguments = PsArguments(tail);
+            ProcessStartInfo psi = new ProcessStartInfo("powershell.exe", arguments);
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.RedirectStandardInput = true;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            Encoding enc = MainForm.ConsoleEncoding();
+            psi.StandardOutputEncoding = enc;
+            psi.StandardErrorEncoding = enc;
+
+            LogLine("");
+            LogLine("$ " + arguments);
+            LogLine("");
+
+            try
+            {
+                proc = new Process();
+                proc.StartInfo = psi;
+                proc.EnableRaisingEvents = true;
+                proc.OutputDataReceived += delegate(object s, DataReceivedEventArgs e)
+                {
+                    if (e.Data != null) LogLine(e.Data);
+                };
+                proc.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e)
+                {
+                    if (e.Data != null) LogLine(e.Data);
+                };
+                proc.Exited += delegate(object s, EventArgs e)
+                {
+                    int code = -1;
+                    try { code = proc.ExitCode; } catch { }
+                    BeginInvoke(new Action(delegate
+                    {
+                        btnDownload.Enabled = true;
+                        btnTest.Enabled = true;
+                        LogLine("");
+                        LogLine(code == 0 ? "下载流程结束。请点「刷新」重新检测依赖。" : ("下载结束，退出码 " + code + "。"));
+                        RunCheck();
+                    }));
+                };
+                proc.Start();
+                try { proc.StandardInput.Close(); } catch { }
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
+                btnDownload.Enabled = false;
+                btnTest.Enabled = false;
+            }
+            catch (Exception ex)
+            {
+                LogLine("[ERROR] 无法启动 PowerShell: " + ex.Message);
+                btnDownload.Enabled = true;
+                btnTest.Enabled = true;
+            }
+        }
+
+        private void LogLine(string line)
+        {
+            if (txtLog.InvokeRequired)
+            {
+                try { txtLog.BeginInvoke(new Action<string>(LogLine), line); } catch { }
+                return;
             }
             txtLog.AppendText(line + "\r\n");
             txtLog.SelectionStart = txtLog.TextLength;
