@@ -36,6 +36,22 @@ if (-not $csc) {
 }
 Write-Host "  compiler: $csc"
 
+# ---- the target EXE is often still running: csc would fail with CS0016 ----
+# Probe for an exclusive handle first so the user gets an actionable message instead of
+# a compiler error (and, when launched from PowerShell 7, a mojibake one).
+if (Test-Path -LiteralPath $out) {
+    $probe = $null
+    try {
+        $probe = [System.IO.File]::Open($out, 'Open', 'ReadWrite', 'None')
+    } catch {
+        Write-Host "[ERROR] cannot write $out - it is in use." -ForegroundColor Red
+        Write-Host "        Close hd2-intro-modder.exe (and any window of it) and rerun." -ForegroundColor Red
+        exit 1
+    } finally {
+        if ($probe) { $probe.Close() }
+    }
+}
+
 # /codepage:65001 keeps the Chinese UI strings intact even if the source file
 # loses its BOM somewhere along the way (csc would otherwise assume the ANSI code page).
 $cscArgs = @(

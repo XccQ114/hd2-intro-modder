@@ -45,8 +45,8 @@ The script is an **orchestrator** — it never touches binary data itself; it ca
 
 LZ4 decoding is a **built-in pure-Python implementation** (`_lz4_block_decompress`); when the optional `lz4` C module happens to be installed it is used for speed instead, and both produce identical bytes - so this step needs **no pip and no network**. Measured on the 10.6 MB payload: 0.79 s pure Python, 0.37 s with the C module.
 
-### 3.1 Built-in assets (6 files)
-`Test-Path` checks each: `base container`, `notice video`, `binktest.exe`, `BinkExtractAudio.exe`, `make-final-patch2.py`, `encode.ps1`. Missing = incomplete package (blocks).
+### 3.1 Built-in assets (6 files checked)
+`Test-Path` checks each: `base container`, `notice video`, `binktest.exe`, `BinkExtractAudio.exe`, `make-final-patch2.py`, `encode.ps1` — the notice video is rebuilt from your own game first when it is absent (see §3.0). Missing = incomplete package (blocks).
 
 ### 3.2 radvideo64.exe (external, detect-only)
 `Find-Radvideo64` searches in order: PATH → package root → `RADVideo\` → `tools\` → `C:\Program Files\RADVideo\` and `C:\Program Files\RAD Video Tools\` (plus x86).
@@ -58,8 +58,10 @@ LZ4 decoding is a **built-in pure-Python implementation** (`_lz4_block_decompres
 ### 3.4 WwiseConsole.exe (external, detect-only)
 `Find-WwiseConsole` searches in order: `-Wwise` arg → `config.json` → bundled `Wwise\` → `C:\Audiokinetic`, `C:\Program Files\Audiokinetic` (recursive).
 
-### 3.5 wproj project (bundled, detect-and-use)
-`Find-Wproj`: `-Wproj` arg → `config.json` → recursive `*.wproj` under the package root. The bundled `wwise-project\intro-convert\intro-convert.wproj` is found automatically.
+### 3.5 wproj project (two bundled, picked by Wwise version)
+`Find-Wproj`: `-Wproj` arg → `config.json` (reused only when the project it records is **not newer** than the installed Wwise major) → **a bundled project chosen by Wwise major** (`wwise-project\intro-convert-2026\` for >= 2026, otherwise `wwise-project\intro-convert\`) → recursive `*.wproj` under the package root as a fallback.
+
+> **Why two**: `migrate` upgrades a project **in place** and that upgrade **cannot be reverted**. Measured: after 2026.1.3 raised schema 132 to 139, 2025.1.2 reported `Some files from the project have a schema version (139) more recent than the version supported by the application (132)` and refused to load it, while calling it with the same version is a no-op. So the script copies the project into the output folder first and migrates that copy; the two bundled projects keep their own formats (132 / 139).
 
 ### 3.6 bink2w64.dll (commercial - **not shipped**, taken from the player's game)
 `Find-Hd2GameDir` + `Find-BinkDll` search in order:
@@ -91,11 +93,11 @@ Detected Wwise / wproj / game paths are written back to `config.json` (`Save-Cfg
 video.bk2 ──BinkExtractAudio──▶ audio.wav (PCM, pulled frame-by-frame from the BINK track)
 audio.wav ──WwiseConsole convert-external-source──▶ audio.wem (Vorbis)
 ```
-- The script writes `wsources.xml` on the fly (`build-mod.ps1:251`) with `Conversion="Vorbis Quality High"`.
+- The script writes `wsources.xml` on the fly during the audio stage, with `Conversion="Vorbis Quality High"`.
 - Runs `migrate` then `convert-external-source`; output `Windows\audio.wem`.
 - Game audio = the WAV region at the start of the stream (wem), **not** the BINK track — that is why wem must be built first.
 
-### Layer 3: container packaging (`tools\scripts\make-final-patch2.py`, the core)
+### Layer 3: container packaging (`src\make-final-patch2.py`, the core)
 
 **Inputs (4 files)**: `--wem` (audio), `--v2` (new video bk2), `--v1` (vanilla notice), `--base` (base container).
 
@@ -107,7 +109,7 @@ stream = wem + pad16 + v1(notice) + pad16 + v2(new video)
 ```
 (`pad16` = 16-byte alignment; offsets must be multiples of 16.)
 
-**9 fields updated in the base container**:
+**10 fields updated in the base container**:
 
 | Offset | Field | Meaning |
 |---|---|---|

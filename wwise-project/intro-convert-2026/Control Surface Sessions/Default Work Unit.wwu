@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WwiseDocument Type="WorkUnit" ID="{48641982-663B-4054-A0EF-B676361BDC8E}" SchemaVersion="139">
+	<ControlSurfaceSessions>
+		<WorkUnit Name="Default Work Unit" ID="{48641982-663B-4054-A0EF-B676361BDC8E}" PersistMode="Standalone">
+			<ChildrenList>
+				<ControlSurfaceSession Name="Default Control Surface Session" ID="{2451DD2E-A7B2-45E6-B93B-6F49B9B887AD}">
+					<ChildrenList>
+						<ControlSurfaceBindingGroup Name="Global" ID="{EEA4B3AF-BE40-41F0-ADFE-F2F85C190A44}"/>
+						<ControlSurfaceBindingGroup Name="Current Selection" ID="{98778789-C5BA-46E0-81BB-CEE1F84778B1}">
+							<PropertyList>
+								<Property Name="GroupType" Type="int16" Value="4"/>
+							</PropertyList>
+							<ChildrenList>
+								<ControlSurfaceBinding Name="Binding" ID="{8F5EF273-3160-40EC-94E1-5F424450358B}">
+									<PropertyList>
+										<Property Name="TargetName" Type="string" Value="PassMidiNote"/>
+										<Property Name="TargetType" Type="int16" Value="1"/>
+									</PropertyList>
+								</ControlSurfaceBinding>
+							</ChildrenList>
+						</ControlSurfaceBindingGroup>
+						<ControlSurfaceBindingGroup Name="View Groups" ID="{E31EAC3E-7C6D-4EE0-8327-3EB4DC3B2600}">
+							<PropertyList>
+								<Property Name="GroupType" Type="int16" Value="3"/>
+							</PropertyList>
+						</ControlSurfaceBindingGroup>
+					</ChildrenList>
+				</ControlSurfaceSession>
+			</ChildrenList>
+		</WorkUnit>
+	</ControlSurfaceSessions>
+</WwiseDocument>

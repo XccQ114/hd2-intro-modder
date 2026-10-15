@@ -3,7 +3,7 @@
 
 The real base container and notice video are multi-megabyte game files, so these tests
 build tiny synthetic stand-ins. That is legitimate here precisely because the packager
-never *parses* the container: it copies the base blob, pokes u32 values at nine fixed
+never *parses* the container: it copies the base blob, pokes u32 values at ten fixed
 offsets, and concatenates three blobs with 16-byte alignment. Those two behaviours
 (alignment/offsets, and the field writes) are what is asserted below.
 
@@ -112,7 +112,7 @@ def test_stream_is_wem_then_notice_then_video(monkeypatch, paths):
     assert stream[v1_off + V1_LEN:v2_off] == b'\x00' * (v2_off - v1_off - V1_LEN)
 
 
-def test_all_nine_container_fields_are_rewritten(monkeypatch, paths):
+def test_all_ten_container_fields_are_rewritten(monkeypatch, paths):
     run_ok(monkeypatch, paths)
     with open(os.path.join(paths['out'], '9ba626afa44a3aa3.patch_0'), 'rb') as f:
         patch = f.read()

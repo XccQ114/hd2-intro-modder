@@ -56,7 +56,7 @@
 | RAD Video Tools(`radvideo64.exe`) | RAD Game Tools, Inc. / Epic Games Tools, LLC | ❌ **不分发** | 商业软件(可免费使用);请自行从 <https://www.radgametools.com/bnkdown.htm> 安装 |
 | `bink2w64.dll` | RAD Game Tools, Inc. / Epic Games Tools, LLC | ❌ **不分发** | 商业解码器。脚本会**自动定位**你游戏目录里的 `bin\bink2w64.dll` 用于音频提取与解码校验;找不到时给出明确提示,音频也可用 `-Wem` 绕过 |
 | Wwise(`WwiseConsole.exe`) | Audiokinetic Inc. | ❌ **不分发** | 商业软件(个人/学习免费);请自行安装,仅在需要转换音频时使用 |
-| `wwise-project\` 内的 `Factory*.wwu` | Audiokinetic Inc. | ✅ 随包 | Wwise 工程模板文件(Factory Conversion Settings / Effects / Queries / Attenuations / Spatial Audio),随 Wwise Authoring 一并产生。**其再分发许可未核实**,若 Audiokinetic EULA 不允许,请删掉 `wwise-project\` 并自行用 Wwise 新建一个 Audio Conversion 工程 |
+| `wwise-project\` 内的 `Factory*.wwu`(两套工程:`intro-convert\` = 2025.1.2 格式,`intro-convert-2026\` = 2026.1.3 迁移版) | Audiokinetic Inc. | ✅ 随包 | Wwise 工程模板文件(Factory Conversion Settings / Effects / Queries / Attenuations / Spatial Audio),随 Wwise Authoring 一并产生。**其再分发许可未核实**,若 Audiokinetic EULA 不允许,请删掉 `wwise-project\` 并自行用 Wwise 新建一个 Audio Conversion 工程 |
 | `tools\binktest\binktest.exe`、`BinkExtractAudio.exe` | 源自 HD2-Mod 开发套件(XccQ114) | ✅ 随包 | 套件自研工具,适用 CC BY-NC 4.0 |
 | `src\*.py`、`tools\*.ps1`、`gui\*.cs` 源码 | 本项目 / 上游套件 | ✅ 随包 | 适用 CC BY-NC 4.0 |
 | ffmpeg / ffprobe | FFmpeg 项目(LGPL / GPL) | ❌ 不分发 | **必需**:低于 720p 的源必须重压(否则游戏内花屏),超过 1440p/60fps 必须降级。GUI 可在你确认后代为下载到 `deps\`(项目在系统盘时改放其他盘),也可自行安装 |

@@ -7,7 +7,7 @@
 | 依赖 | 自动? | 获取 |
 |---|---|---|
 | RAD Video Tools (radvideo64.exe) | 仅检测 | https://www.radgametools.com/bnkdown.htm |
-| Python 3 | 仅检测 | https://www.python.org/downloads/ |
+| Python 3 | 仅检测，**可代下载** | https://www.python.org/downloads/ |
 | **《绝地潜兵 2》本体**(提供 `bin\bink2w64.dll`,并用于重建原版告示视频) | **自动定位** | 你已经在玩这个游戏 :) |
 | Wwise（默认流程必需；自备 `.wem` 可跳过） | 仅检测 | https://www.audiokinetic.com/download/ |
 | ffmpeg/ffprobe（**必需**：保证任意分辨率都能出可用成品） | 仅检测，**可代下载** | https://ffmpeg.org/download.html |
@@ -17,7 +17,7 @@
 > RAD Video Tools 与 Wwise 属于商业软件或需要账号，无法代下载，GUI 只给出官方地址。
 > **本工具不会输出不可用的成品**：源视频低于 720p 却无法重压、编码后 `flags != 0x40012`、全帧解码校验失败，都会直接阻断并把半成品移进 `output\failed\`（最多保留 10 份，超出按时间清理）。
 
-内置（无需安装）：binktest 工具、封装脚本、基底容器 + 原版告示、Wwise Audio Conversion 项目（`wwise-project\`）。
+内置（无需安装）：binktest 工具、封装脚本、基底容器、Wwise Audio Conversion 项目（`wwise-project\`）；原版告示视频**不随包分发**，首次运行时从你的游戏重建（见上）。
 
 > **为什么需要你的游戏**：把 `.bk2` 里的 BINK 音轨提取成 WAV（`BinkExtractAudio.exe`）、以及最后的全帧解码校验（`binktest.exe`），都要用 Bink 解码器 `bink2w64.dll`。那是 RAD Game Tools 的商业 DLL，**本项目不分发**，而是自动从你的游戏目录取（Steam 注册表 → 库文件夹 → 常见路径，也可用 `-GameDir` 指定），复制到临时目录用完即删。
 > 找不到时会明确提示；此时仍可用 `-Wem` 传入现成 wem 跳过音频提取。
@@ -40,10 +40,16 @@
 
 1. 注册免费 Audiokinetic 账号：https://www.audiokinetic.com/ （页面右上角 Sign Up）。
 2. 下载并安装 **Wwise Launcher**：https://www.audiokinetic.com/download/ ，登录。
-3. Launcher → 「Install」页 → 选择版本 **2025.1.x**（2023.1.7 及以上均可，本工具在 2025.1.2 实测通过）→ 点 Install。
+3. Launcher → 「Install」页 → 选择版本 **2025.1.2**（推荐：与随包工程同版本；**2025.1.2 或更高**均可，2026.1.3 (BETA) 也已实测可用）→ 点 Install。
 4. 安装路径保持默认 `C:\Audiokinetic`（脚本会递归扫描该目录）。若装在别处，首次运行用 `-Wwise <WwiseConsole.exe 路径>` 参数指定，脚本会记到 `config.json`。
 5. 组件**只需勾选 Wwise Authoring**：SDK 和各平台组件都不需要——本工具只用命令行转换工具 `WwiseConsole.exe`，不装 SDK 更省磁盘。
 6. 装完检查：`C:\Audiokinetic\Wwise<版本号>\Authoring\x64\Release\bin\WwiseConsole.exe` 存在即成功。
+
+> **版本说明（已实测）**：项目自带**两套工程** —— `wwise-project\intro-convert\`（2025.1.2 创建，schema 132）与 `wwise-project\intro-convert-2026\`（2026.1.3 迁移，schema 139）。脚本按检测到的 Wwise 主版本**自动选用匹配的那套**，并且只对**输出目录里的工程副本**执行 `migrate`，所以仓库内的工程永远保持原样。
+>
+> 为什么必须这样：`migrate` 会把工程**就地**升级到当前 Wwise 的格式，且**不可回退** —— 实测 2026.1.3 把 schema 132 升到 139 后，2025.1.2 会拒绝加载（`Some files from the project have a schema version (139) more recent than the version supported by the application (132)` / `Error: Project contains errors and cannot be loaded`）；同版本调用则是空操作。你用自己的工程（`-Wproj`）时同样只在副本上被升级。
+>
+> 实测：2026.1.3 (BETA) 的 `migrate` 与 `convert-external-source` 都能正常跑完并产出可用的 wem（`Windows\audio.wem`，RIFF 头）。
 
 ## 使用
 
@@ -123,7 +129,7 @@ Turn a MP4 into a Helldivers 2 intro-replacement mod (one command).
 | Need | Auto? | Get it |
 |---|---|---|
 | RAD Video Tools (radvideo64.exe) | detect only | https://www.radgametools.com/bnkdown.htm |
-| Python 3 | detect only | https://www.python.org/downloads/ |
+| Python 3 | detect only, **can be fetched for you** | https://www.python.org/downloads/ |
 | **Helldivers 2 itself** (supplies `bin\bink2w64.dll`, and the source data for the notice video) | **auto-located** | you already own the game :) |
 | Wwise (required by the default flow; skip it with a ready-made `.wem`) | detect only | https://www.audiokinetic.com/download/ |
 | ffmpeg/ffprobe (**required** - guarantees a usable mod at any resolution) | detect only, **can be fetched for you** | https://ffmpeg.org/download.html |
@@ -156,10 +162,16 @@ Built-in (no install): binktest tools, packager scripts, the base container temp
 
 1. Create a free Audiokinetic account: https://www.audiokinetic.com/ (Sign Up, top right).
 2. Download and install **Wwise Launcher**: https://www.audiokinetic.com/download/ , then sign in.
-3. In the Launcher open the **Install** tab, pick version **2025.1.x** (2023.1.7 or newer works; tested with 2025.1.2), click Install.
+3. In the Launcher open the **Install** tab, pick version **2025.1.2** (recommended - same version as the bundled project; **2025.1.2 or newer** works, and 2026.1.3 (BETA) is verified too), click Install.
 4. Keep the default install path `C:\Audiokinetic` (the script scans this folder recursively). If you install elsewhere, point the script at it once with `-Wwise <path to WwiseConsole.exe>`; the path is remembered in `config.json`.
 5. Components: **only Wwise Authoring is needed** - no SDK or platform packages. This tool only uses the CLI converter `WwiseConsole.exe`, so skipping the SDK saves disk space.
 6. Verify after install: `C:\Audiokinetic\Wwise<version>\Authoring\x64\Release\bin\WwiseConsole.exe` should exist.
+
+> **Version note (measured)**: the package ships **two projects** - `wwise-project\intro-convert\` (created by 2025.1.2, schema 132) and `wwise-project\intro-convert-2026\` (migrated by 2026.1.3, schema 139). The script picks the one matching the installed Wwise major and only ever runs `migrate` on a **copy inside the output folder**, so the projects in the package are never rewritten.
+>
+> Why it has to be that way: `migrate` upgrades a project **in place** and that upgrade **cannot be reverted** - measured: after 2026.1.3 raised schema 132 to 139, 2025.1.2 refused to load it (`Some files from the project have a schema version (139) more recent than the version supported by the application (132)` / `Error: Project contains errors and cannot be loaded`), while calling it with the same version is a no-op. A project you pass with `-Wproj` is likewise only upgraded in the copy.
+>
+> Measured: 2026.1.3 (BETA) completed both `migrate` and `convert-external-source` and produced a usable wem (`Windows\audio.wem`, RIFF header).
 
 ## Use
 

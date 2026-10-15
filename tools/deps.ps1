@@ -158,6 +158,19 @@ function Find-WwiseConsolePath {
     return $null
 }
 
+function Get-WwiseMajorPath {
+    # Mirrors Get-WwiseMajor in build-mod.ps1: the installed Wwise major decides which
+    # bundled project can be used, because an older Wwise cannot open a project that a
+    # newer one has already upgraded.
+    $exe = Find-WwiseConsolePath
+    if (-not $exe) { return 0 }
+    try {
+        $m = [regex]::Match([string](Get-Item -LiteralPath $exe).VersionInfo.FileVersion, '^(\d{4})')
+        if ($m.Success) { return [int]$m.Groups[1].Value }
+    } catch { }
+    return 0
+}
+
 function Find-WprojPath {
     $cfgFile = Join-Path $ProjectRoot 'config.json'
     if (Test-Path -LiteralPath $cfgFile) {
@@ -166,6 +179,12 @@ function Find-WprojPath {
             if ($j.wproj -and (Test-Path -LiteralPath $j.wproj)) { return [string]$j.wproj }
         } catch { }
     }
+    # Two projects ship with the package; prefer the one matching the installed major.
+    $major = Get-WwiseMajorPath
+    $bundled = @()
+    if ($major -ge 2026) { $bundled += (Join-Path $ProjectRoot 'wwise-project\intro-convert-2026\intro-convert.wproj') }
+    $bundled += (Join-Path $ProjectRoot 'wwise-project\intro-convert\intro-convert.wproj')
+    foreach ($b in $bundled) { if (Test-Path -LiteralPath $b) { return $b } }
     $hit = Get-ChildItem -LiteralPath $ProjectRoot -Recurse -Filter '*.wproj' -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($hit) { return $hit.FullName }
     return $null
@@ -351,7 +370,12 @@ function Test-UrlReachable {
     # that into a terminating NativeCommandError, so relax it around the call.
     $ErrorActionPreference = 'Continue'
     try {
-        $code = (& $curl -sS -L -o NUL -w '%{http_code}' --max-time $TimeoutSec -r 0-0 -A $UserAgent $Url 2>$null | Out-String).Trim()
+        # --ssl-no-revoke: a reachability probe must not fail just because the machine
+        # cannot fetch the certificate revocation list (measured on a machine where the
+        # CDN answered 202 only once revocation checking was skipped). Scoped to the
+        # probe on purpose - Invoke-DepFetch keeps the strict default so a real download
+        # still validates the chain.
+        $code = (& $curl -sS -L --ssl-no-revoke -o NUL -w '%{http_code}' --max-time $TimeoutSec -r 0-0 -A $UserAgent $Url 2>$null | Out-String).Trim()
     } catch { $code = 'error' }
     finally { $ErrorActionPreference = $prev }
     $sw.Stop()

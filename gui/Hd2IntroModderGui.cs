@@ -789,6 +789,39 @@ namespace Hd2IntroModder
             return d;
         }
 
+        private static string Field(Dictionary<string, string> f, string key)
+        {
+            return f.ContainsKey(key) ? f[key] : null;
+        }
+
+        /// <summary>Maps one DEP| line onto a DepInfo. Absent fields keep their defaults.</summary>
+        private static DepInfo ParseDepLine(string line)
+        {
+            Dictionary<string, string> f = ParseFields(line);
+            DepInfo d = new DepInfo();
+            d.Id = Field(f, "id") ?? "";
+            d.Name = Field(f, "name") ?? "";
+            d.Installed = Field(f, "installed") == "1";
+            d.Auto = Field(f, "auto") == "1";
+            d.Condition = Field(f, "condition") ?? "";
+            d.Note = Field(f, "note") ?? "";
+            d.Url = Field(f, "url") ?? "";
+            d.Path = Field(f, "path") ?? "";
+            string sources = Field(f, "sources");
+            if (sources != null && sources.Length > 0) d.Sources = sources.Split(';');
+            return d;
+        }
+
+        /// <summary>Fills the CHECK| line's root/game-dir slots.</summary>
+        private static void ParseCheckLine(string line, string[] rootOut)
+        {
+            Dictionary<string, string> f = ParseFields(line);
+            string depsRoot = Field(f, "depsRoot");
+            string gameDir = Field(f, "gameDir");
+            if (depsRoot != null) rootOut[0] = depsRoot;
+            if (gameDir != null && rootOut.Length > 1) rootOut[1] = gameDir;
+        }
+
         private static List<DepInfo> ParseDeps(string[] lines, string[] rootOut)
         {
             List<DepInfo> list = new List<DepInfo>();
@@ -796,28 +829,8 @@ namespace Hd2IntroModder
             {
                 string line = raw.TrimEnd('\r');
                 if (line.Length == 0) continue;
-                if (line.StartsWith("DEP|"))
-                {
-                    Dictionary<string, string> f = ParseFields(line);
-                    DepInfo d = new DepInfo();
-                    if (f.ContainsKey("id")) d.Id = f["id"];
-                    if (f.ContainsKey("name")) d.Name = f["name"];
-                    if (f.ContainsKey("installed")) d.Installed = (f["installed"] == "1");
-                    if (f.ContainsKey("auto")) d.Auto = (f["auto"] == "1");
-                    if (f.ContainsKey("condition")) d.Condition = f["condition"];
-                    if (f.ContainsKey("note")) d.Note = f["note"];
-                    if (f.ContainsKey("url")) d.Url = f["url"];
-                    if (f.ContainsKey("path")) d.Path = f["path"];
-                    if (f.ContainsKey("sources") && f["sources"].Length > 0)
-                        d.Sources = f["sources"].Split(';');
-                    list.Add(d);
-                }
-                else if (line.StartsWith("CHECK|") && rootOut != null)
-                {
-                    Dictionary<string, string> f = ParseFields(line);
-                    if (f.ContainsKey("depsRoot")) rootOut[0] = f["depsRoot"];
-                    if (f.ContainsKey("gameDir") && rootOut.Length > 1) rootOut[1] = f["gameDir"];
-                }
+                if (line.StartsWith("DEP|")) list.Add(ParseDepLine(line));
+                else if (line.StartsWith("CHECK|") && rootOut != null) ParseCheckLine(line, rootOut);
             }
             return list;
         }
@@ -935,6 +948,38 @@ namespace Hd2IntroModder
             ReflowDetail();
         }
 
+        /// <summary>Logs one SRC| probe line and records it under its dependency id.</summary>
+        private void ReportProbe(string line, Dictionary<string, List<string>> byId,
+                                 ref int ok, ref int fail)
+        {
+            Dictionary<string, string> f = ParseFields(line);
+            string id = Field(f, "id") ?? "";
+            bool isOk = Field(f, "ok") == "1";
+            bool isDownload = Field(f, "kind") == "download";
+            string txt = (isOk ? "可达 " : "不可达 ") + (Field(f, "http") ?? "?")
+                + " · " + (Field(f, "ms") ?? "?") + "ms";
+            if (isOk) ok++; else fail++;
+            LogLine("  [" + id + "] " + (isDownload ? "下载源 " : "官网   ") + txt
+                + "  " + (Field(f, "url") ?? ""));
+            if (!byId.ContainsKey(id)) byId[id] = new List<string>();
+            byId[id].Add((isDownload ? "" : "官网 ") + txt);
+        }
+
+        /// <summary>Paints the reachability column from the recorded probe results.</summary>
+        private void ApplyReachability(Dictionary<string, List<string>> byId)
+        {
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                DepInfo d = row.Tag as DepInfo;
+                if (d == null || !byId.ContainsKey(d.Id)) continue;
+                row.Cells["reach"].Value = byId[d.Id][0];
+                bool any = false;
+                foreach (string t in byId[d.Id])
+                    if (IsReachable(t)) any = true;
+                row.Cells["reach"].Style.ForeColor = any ? Color.ForestGreen : Color.Firebrick;
+            }
+        }
+
         private void RunTestSources()
         {
             btnTest.Enabled = false;
@@ -945,28 +990,9 @@ namespace Hd2IntroModder
             Dictionary<string, List<string>> byId = new Dictionary<string, List<string>>();
             foreach (string line in lines)
             {
-                if (!line.StartsWith("SRC|")) continue;
-                Dictionary<string, string> f = ParseFields(line);
-                string id = f.ContainsKey("id") ? f["id"] : "";
-                bool isOk = f.ContainsKey("ok") && f["ok"] == "1";
-                bool isDownload = f.ContainsKey("kind") && f["kind"] == "download";
-                string txt = (isOk ? "可达 " : "不可达 ") + (f.ContainsKey("http") ? f["http"] : "?")
-                    + " · " + (f.ContainsKey("ms") ? f["ms"] : "?") + "ms";
-                if (isOk) ok++; else fail++;
-                LogLine("  [" + id + "] " + (isDownload ? "下载源 " : "官网   ") + txt
-                    + "  " + (f.ContainsKey("url") ? f["url"] : ""));
-                if (!byId.ContainsKey(id)) byId[id] = new List<string>();
-                byId[id].Add((isDownload ? "" : "官网 ") + txt);
+                if (line.StartsWith("SRC|")) ReportProbe(line, byId, ref ok, ref fail);
             }
-            foreach (DataGridViewRow row in grid.Rows)
-            {
-                DepInfo d = row.Tag as DepInfo;
-                if (d == null || !byId.ContainsKey(d.Id)) continue;
-                row.Cells["reach"].Value = byId[d.Id][0];
-                bool any = false;
-                foreach (string t in byId[d.Id]) if (t.IndexOf("可达") >= 0) any = true;
-                row.Cells["reach"].Style.ForeColor = any ? Color.ForestGreen : Color.Firebrick;
-            }
+            ApplyReachability(byId);
             LogLine("探测完成：可达 " + ok + " 个，不可达 " + fail + " 个。");
             if (ok == 0 && fail > 0)
                 LogLine("所有镜像都不可达。可以手动把「下载地址」改成你能访问的镜像（任意提供同名压缩包的地址）。");
@@ -1084,6 +1110,16 @@ namespace Hd2IntroModder
                 btnDownload.Enabled = true;
                 btnTest.Enabled = true;
             }
+        }
+
+        /// <summary>
+        /// True when a probe line reports a reachable source. Kept as its own method because
+        /// "不可达" contains "可达" as a substring, so the negative case must be excluded
+        /// explicitly - and inlining that test pushed RunTestSources past the complexity gate.
+        /// </summary>
+        private static bool IsReachable(string text)
+        {
+            return text.IndexOf("可达") >= 0 && text.IndexOf("不可达") < 0;
         }
 
         private void LogLine(string line)

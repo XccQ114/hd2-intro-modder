@@ -19,6 +19,10 @@ if (-not $rv) {
     foreach ($rp in @(
         (Join-Path $root 'radvideo64.exe'),
         (Join-Path $root 'RADVideo\radvideo64.exe'),
+        # keep this in sync with build-mod.ps1 and tools\deps.ps1: both also accept a copy
+        # dropped into tools\, so leaving it out here would let the scan pass while the
+        # encode step fails.
+        (Join-Path $root 'tools\radvideo64.exe'),
         'C:\Program Files\RAD Video Tools\radvideo64.exe',
         'C:\Program Files (x86)\RAD Video Tools\radvideo64.exe',
         'C:\Program Files\RADVideo\radvideo64.exe',
@@ -107,6 +111,18 @@ $needInputCopy = -not (Test-Ascii $inputFull)
 $needOutputCopy = -not (Test-Ascii $outputFull)
 $needTranscode = $needInputCopy -or $needOutputCopy
 
+# ---- remember which encoders were already running (never kill the user's own window) ----
+$rvBefore = @(Get-Process -Name 'radvideo64' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+
+# ASCII-only work dir: radvideo64 hangs on non-ASCII paths, and %TEMP% itself carries the
+# user name, which is not ASCII on every machine - so fall back to the system drive.
+function Get-AsciiWorkDir {
+    foreach ($c in @((Join-Path $env:TEMP 'hd2_encode_tmp'), (Join-Path $env:SystemDrive 'hd2_encode_tmp'))) {
+        if (Test-Ascii $c) { return $c }
+    }
+    return (Join-Path $env:SystemDrive 'hd2_encode_tmp')
+}
+
 # ---- clean stale .tmp from a previous interrupted run (bink2c writes <out>.tmp first) ----
 if (Test-Path -LiteralPath ($outputFull + '.tmp')) {
     Write-Host "[INFO] removing stale temp file from a previous interrupted run: $outputFull.tmp" -ForegroundColor Yellow
@@ -124,8 +140,9 @@ if (-not $needTranscode) {
     $ok = Wait-Bk2 $outputFull
 } else {
     Write-Host "[INFO] non-ASCII path detected, copying to ASCII temp dir first."
-    $tmpDir = Join-Path $env:TEMP 'hd2_encode_tmp'
+    $tmpDir = Get-AsciiWorkDir
     if (-not (Test-Path -LiteralPath $tmpDir)) { New-Item -ItemType Directory -Path $tmpDir | Out-Null }
+    Write-Host ("     work dir: " + $tmpDir)
     $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
     $tmpIn  = Join-Path $tmpDir ("in_"  + $stamp + [System.IO.Path]::GetExtension($inputFull))
     $tmpOut = Join-Path $tmpDir ("out_" + $stamp + '.bk2')
@@ -147,8 +164,12 @@ if (-not $needTranscode) {
     Remove-Item -LiteralPath $tmpOut -Force -ErrorAction SilentlyContinue
 }
 
-# ---- close the GUI encoder (it does not exit on its own) ----
-Get-Process -Name 'radvideo64' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+# ---- close only the GUI encoder this run started (it does not exit on its own) ----
+# A RAD Video Tools window the user opened by hand must survive: only PIDs that appeared
+# after this run began are ours.
+Get-Process -Name 'radvideo64' -ErrorAction SilentlyContinue |
+    Where-Object { $rvBefore -notcontains $_.Id } |
+    Stop-Process -Force -ErrorAction SilentlyContinue
 
 # ---- result ----
 if ($ok -and (Test-Path -LiteralPath $outputFull) -and ((Get-Item -LiteralPath $outputFull).Length -gt 0)) {

@@ -15,7 +15,7 @@
                                               （= 可直接装进游戏 data\ 的 mod）
 ```
 
-三件固定素材（内置在 `assets\`）：基底容器 `9ba626afa44a3aa3.patch_0`（清洗版）+ 原版告示 `83cc35d311ee2648.stream`。
+`assets\` 下有两件固定素材：基底容器 `9ba626afa44a3aa3.patch_0`（清洗版，随包分发；原 SoundBank 数据已清零）与原版告示 `83cc35d311ee2648.stream`（**游戏数据，不随包**，首次运行时从你的游戏重建）。
 
 ## 二、主流程（`build-mod.ps1`，7 个阶段）
 
@@ -42,8 +42,8 @@
 >
 > LZ4 解码是**内置的纯 Python 实现**（`_lz4_block_decompress`）：环境里恰好装了 `lz4` C 模块时会自动改用它加速，两者输出逐字节相同 —— 所以这一步**不需要 pip、不需要联网**。实测：纯 Python 解码 0.79 秒，C 模块 0.37 秒。
 
-### 1. 内置资产（6 个文件，随包自带）
-`Test-Path` 逐个检查：`base container`、`notice video`、`binktest.exe`、`BinkExtractAudio.exe`、`make-final-patch2.py`、`encode.ps1`。缺失 = 包不完整（阻断）。
+### 1. 内置资产（检查 6 个文件）
+`Test-Path` 逐个检查：`base container`、`notice video`、`binktest.exe`、`BinkExtractAudio.exe`、`make-final-patch2.py`、`encode.ps1` —— 其中 notice video 缺失时会先尝试从你的游戏重建（见上）。缺失 = 包不完整（阻断）。
 
 ### 2. radvideo64.exe（外部，只检测不自动装）
 `Find-Radvideo64` 按序找：PATH → 包根 → `RADVideo\` → `tools\` → `C:\Program Files\RADVideo\` 与 `C:\Program Files\RAD Video Tools\`（含 x86）。
@@ -55,8 +55,10 @@
 ### 4. WwiseConsole.exe（外部，只检测不自动装）
 `Find-WwiseConsole` 按序找：`-Wwise` 参数 → `config.json` → 包内 `Wwise\` → `C:\Audiokinetic`、`C:\Program Files\Audiokinetic`（递归找 `WwiseConsole.exe`）。
 
-### 5. wproj 项目（已内置，检测到即用）
-`Find-Wproj` 按序找：`-Wproj` 参数 → `config.json` → 包根递归 `*.wproj`。内置的 `wwise-project\intro-convert\intro-convert.wproj` 会被自动命中。
+### 5. wproj 项目（已内置两套，按 Wwise 版本选用）
+`Find-Wproj` 按序找：`-Wproj` 参数 → `config.json`（仅当它记录的工程**不高于**当前 Wwise 主版本时才沿用）→ **按 Wwise 主版本选内置工程**（≥2026 用 `wwise-project\intro-convert-2026\`，否则用 `wwise-project\intro-convert\`）→ 包根递归 `*.wproj` 兜底。
+
+> **为什么是两套**：`migrate` 会把工程**就地**升级到当前 Wwise 的格式，且**不可回退**。实测：2026.1.3 把 schema 132 升到 139 后，2025.1.2 报 `Some files from the project have a schema version (139) more recent than the version supported by the application (132)` 并拒绝加载；而同版本调用是空操作。因此脚本把工程**先复制到输出目录**再 `migrate`，两套内置工程各自保持格式（132 / 139）。
 
 ### 6. bink2w64.dll（商业 DLL，**不随包分发**，从玩家游戏里取）
 `Find-Hd2GameDir` + `Find-BinkDll` 按序找：
@@ -88,11 +90,11 @@
 video.bk2 ──BinkExtractAudio──▶ audio.wav（PCM，逐帧拉 BINK 音轨）
 audio.wav ──WwiseConsole convert-external-source──▶ audio.wem（Vorbis）
 ```
-- 脚本动态生成 `wsources.xml`（`build-mod.ps1:251`），指定 `Conversion="Vorbis Quality High"`。
+- 脚本动态生成 `wsources.xml`（在音频阶段由 `build-mod.ps1` 写出），指定 `Conversion="Vorbis Quality High"`。
 - 先 `migrate` 再 `convert-external-source`，产物 `Windows\audio.wem`。
 - 游戏音频 = stream 开头 WAV 区（wem），**不是** BINK 音轨，故必须先提 wem。
 
-### 第 3 层：容器封装（`tools\scripts\make-final-patch2.py`，核心）
+### 第 3 层：容器封装（`src\make-final-patch2.py`，核心）
 
 **输入**（4 个文件）：`--wem`（音频）、`--v2`（新视频 bk2）、`--v1`（原版告示）、`--base`（基底容器）。
 
@@ -104,7 +106,7 @@ stream = wem + pad16 + v1(告示) + pad16 + v2(新视频)
 ```
 （`pad16` = 16 字节对齐，偏移必须是 16 的倍数。）
 
-**更新基底容器 9 个字段**：
+**更新基底容器 10 个字段**：
 
 | 偏移 | 字段 | 含义 |
 |---|---|---|

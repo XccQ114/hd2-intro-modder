@@ -1,4 +1,4 @@
-# build-mod.ps1 - HD2 intro replacement mod generator (v1.1)
+# build-mod.ps1 - HD2 intro replacement mod generator (v1.2.0)
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File build-mod.ps1 -Video video.mp4
 #   powershell -ExecutionPolicy Bypass -File build-mod.ps1 -Video video.mp4 -Num 1 -Zip
@@ -228,12 +228,57 @@ function Find-WwiseConsole {
     return $null
 }
 
+function Get-WwiseMajor {
+    # The installed Wwise major decides which bundled project is usable: a newer Wwise
+    # upgrades an older project in place and irreversibly (see Copy-WwiseProject), while an
+    # older Wwise refuses to open a project a newer one already upgraded.
+    if (-not $ww) { return 0 }
+    try {
+        $m = [regex]::Match([string](Get-Item -LiteralPath $ww).VersionInfo.FileVersion, '^(\d{4})')
+        if ($m.Success) { return [int]$m.Groups[1].Value }
+    } catch { }
+    return 0
+}
+
+function Get-WprojMajor {
+    # Reads WwiseVersion="v2026.1.3" out of the project header; 0 when it cannot be read.
+    param([string]$Path)
+    try {
+        $head = (Get-Content -LiteralPath $Path -TotalCount 3 -ErrorAction Stop) -join ' '
+        $m = [regex]::Match($head, 'WwiseVersion="v(\d{4})')
+        if ($m.Success) { return [int]$m.Groups[1].Value }
+    } catch { }
+    return 0
+}
+
 function Find-Wproj {
     if ($Wproj -and (Test-Path -LiteralPath $Wproj)) { return $Wproj }
-    if ($cfg.wproj -and (Test-Path -LiteralPath $cfg.wproj)) { return ([string]$cfg.wproj) }
+    $major = Get-WwiseMajor
+    # A remembered path is reused only when it is not newer than the Wwise in use - pointing
+    # 2025.x at a project a newer Wwise already upgraded just fails to load.
+    if ($cfg.wproj -and (Test-Path -LiteralPath $cfg.wproj)) {
+        $cfgMajor = Get-WprojMajor -Path $cfg.wproj
+        if (($major -le 0) -or ($cfgMajor -le 0) -or ($cfgMajor -le $major)) { return ([string]$cfg.wproj) }
+    }
+    # Two projects ship with the package; prefer the one matching the installed major.
+    $bundled = @()
+    if ($major -ge 2026) { $bundled += (Join-Path $Root 'wwise-project\intro-convert-2026\intro-convert.wproj') }
+    $bundled += (Join-Path $Root 'wwise-project\intro-convert\intro-convert.wproj')
+    foreach ($b in $bundled) { if (Test-Path -LiteralPath $b) { return $b } }
     $hits = Get-ChildItem -LiteralPath $Root -Recurse -Filter *.wproj -ErrorAction SilentlyContinue
     if ($hits) { return $hits[0].FullName }
     return $null
+}
+
+function Copy-WwiseProject {
+    # A .wproj is only the entry point: its work units live in the same folder and migrate
+    # rewrites all of them, so the whole folder has to be copied. Returns the copied .wproj.
+    param([string]$Project, [string]$WorkRoot)
+    $srcDir = Split-Path -Parent $Project
+    $dstDir = Join-Path $WorkRoot ('project-' + (Split-Path $srcDir -Leaf))
+    if (Test-Path -LiteralPath $dstDir) { Remove-Item -LiteralPath $dstDir -Recurse -Force -ErrorAction SilentlyContinue }
+    Copy-Item -LiteralPath $srcDir -Destination $dstDir -Recurse -Force
+    return (Join-Path $dstDir (Split-Path $Project -Leaf))
 }
 
 function Find-Ffmpeg {
@@ -423,7 +468,7 @@ if ($Wem) {
     if ($verboseDeps) { W "  [OK]   WwiseConsole: $ww" "Green" }
     if ($verboseDeps) { W "  [OK]   wproj: $wproj" "Green" }
 } else {
-    if (-not $ww)  { W "  [MISS] WwiseConsole.exe (Wwise, free, needs Audiokinetic account; recommended 2023.1.7)" "Red"
+    if (-not $ww)  { W "  [MISS] WwiseConsole.exe (Wwise, free, needs Audiokinetic account; recommended 2025.1.2 or newer)" "Red"
                      W "         download: https://www.audiokinetic.com/download/  (install, then rerun)" "Red" }
     if (-not $wproj) { W "  [MISS] Wwise Audio Conversion project (.wproj) - create in Wwise Authoring (Audio Conversion template), or pass -Wproj" "Red" }
     W "         OR pass a ready-made .wem via -Wem to skip Wwise entirely." "Yellow"
@@ -629,8 +674,13 @@ if ($Wem) {
     New-Item -ItemType Directory -Path $WemOutDir -Force | Out-Null
     $xml = "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n<ExternalSourcesList SchemaVersion=`"1`" Root=`"$Out`">`n  <Source Path=`"audio.wav`" Conversion=`"Vorbis Quality High`" Destination=`"audio`"/>`n</ExternalSourcesList>"
     [System.IO.File]::WriteAllText($Wsources, $xml, (New-Object System.Text.UTF8Encoding($false)))
-    & $ww migrate $wproj --quiet
-    & $ww convert-external-source $wproj --platform Windows --source-file $Wsources --output $WemOutDir
+    # migrate upgrades the project format IN PLACE and that upgrade cannot be undone
+    # (measured: a project migrated to 2026's schema 139 can no longer be opened by
+    # 2025.1.2). Run migrate/convert against a copy inside the output folder so the
+    # package's own wwise-project\ is never rewritten.
+    $wprojWork = Copy-WwiseProject -Project $wproj -WorkRoot $WemOutDir
+    & $ww migrate $wprojWork --quiet
+    & $ww convert-external-source $wprojWork --platform Windows --source-file $Wsources --output $WemOutDir
     $WemFile = Join-Path $WemOutDir 'Windows\audio.wem'
     if (-not (Test-Path -LiteralPath $WemFile)) {
         W "  [FATAL] wem conversion failed - check Wwise logs, or pass -Wem with a ready-made wem" "Red"; Stop-Script 1
