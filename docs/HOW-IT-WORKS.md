@@ -113,7 +113,19 @@ Same clip, reading `.bk2` header `+0x24`:
 
 **Encoder identity**: with the same `/V6344`, both verified builds on the maintainer machine (RAD Video Tools **2025.05**, `sha256 00df5b03a4e5…` and **2026.06**, `sha256 783c15fd5b35…`) always produce `0x40012`. `encode.ps1` prints the exact encoder path + file version to the console / GUI panel (subprocess stdout does not reach the `log\build-mod-*.log` transcript, so a successful run's log does not contain that line; a flags mismatch does, inside the report).
 
-**`0x8040012` (bit 27) is still unexplained**: one external report showed that value. It could not be reproduced here with either verified encoder or with any `/V` combination tried (HDR, slices, VAQ, BA1.1, alpha source). When the tool sees it, it refuses to ship and writes `log\flags-mismatch-<timestamp>.txt` (encoder version + SHA256 prefix + container magic + source resolution/fps + flag breakdown) — send that file plus your radvideo64 version.
+**`0x08040012` (bit 27): traced to the encoder build (2026-11-26)**
+
+Same clip, three encoder builds measured:
+
+| RAD Video Tools build | `/V6344` writes |
+|---|---|
+| 2025.05 | `0x00040012` ✅ |
+| 2026.06 | `0x00040012` ✅ |
+| **2026.11 (currently RAD's newest download)** | **`0x08040012`** ❌ |
+
+Switching switches does not help on 2026.11: `/V200` → `0x08040012`, `/V2248` → `0x05040010`, `/V8392` → `0x0E040013`, `/V270` → `0x0A040016` - the extra high bit stays. **Installing 2026.06 or older is the fix**, which matches the external report ("do not use the November build"). Since v1.3.2 the tool prints a `[WARN]` during the dependency scan for any encoder `>= 2026.11`, and the mismatch report carries an `advice` line.
+
+Note: whether `0x08040012` actually crashes in game is **not verified** (we did not run the game on the reporter's machine). The tool refuses it as a conservative rule, not as a measured fact.
 
 ### Layer 2: audio (`BinkExtractAudio.exe` + `WwiseConsole.exe`)
 ```

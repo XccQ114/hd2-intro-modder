@@ -33,8 +33,8 @@ using System.Windows.Forms;
 // Global attributes must sit after the using directives and before the namespace.
 [assembly: System.Reflection.AssemblyTitle("hd2-intro-modder")]
 [assembly: System.Reflection.AssemblyProduct("hd2-intro-modder")]
-[assembly: System.Reflection.AssemblyVersion("1.3.1.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.3.1.0")]
+[assembly: System.Reflection.AssemblyVersion("1.3.2.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.3.2.0")]
 
 namespace Hd2IntroModder
 {

@@ -1,6 +1,6 @@
 # hd2-intro-modder
 
-> **当前版本 v1.3.1**（2026-11-26）｜ 变更历史见 [CHANGELOG.md](CHANGELOG.md)
+> **当前版本 v1.3.2**（2026-11-26）｜ 变更历史见 [CHANGELOG.md](CHANGELOG.md)
 
 把一段 MP4 打包成《绝地潜兵 2》开场动画替换 mod（一条命令）。
 
@@ -35,6 +35,7 @@
    - **默认路径安装**（推荐）：直接点下一步装完即可。脚本会扫描 `C:\Program Files\RADVideo\`（无空格）和 `C:\Program Files\RAD Video Tools\`（老安装器带空格）等常见位置；
    - **装进本项目**：把 `radvideo64.exe`（连同同目录的 dll）放到项目根目录或 `RADVideo\` 子目录，脚本优先扫描这两个位置。
 3. 注意：RAD Video Tools 是商业软件，仅限本机使用，**不要**随本项目分发或上传 GitHub。
+4. ⚠️ **别用 2026.11 版**（官方当前最新下载就是它）。实测它会给编出来的视频加一个额外 flags 位，本工具会拒绝输出（见下方「flags 校验失败」）。请用 **2026.06 或更早**（已实测正常：2025.05、2026.06）。装完在 `radvideo64.exe` 右键→属性→详细信息 里能看版本号。
 
 ### Wwise（仅换音频时需要，免费，需注册账号）
 
@@ -107,14 +108,16 @@ flags 不是随便一个数，它跟编码参数绑定（本机实测 `/V` → f
 | `0x40011` / `0x40013` | `/V4296` / `/V8392`（其它 slice 档） | ❌ 拒绝输出 |
 | `0x40014` / `0x40016` | `/V270`（RAD 称 HDR）系列 | ❌ 拒绝输出 |
 | `0x00000010` 等无 `0x40000` 位 | `/V201`（BA1.1，且容器变成 `KB2j`） | ❌ 拒绝输出 |
-| `0x8040012` | 目前无法用任何 `/V` 组合复现 | ❌ 拒绝输出（成因尚未查清，见下） |
+| **`0x08040012`**（= 反馈里的 `0x8040012`） | **RAD Video Tools 2026.11 编出来的**（换任何 `/V` 都躲不掉） | ❌ 拒绝输出，**装回旧版编码器即可** |
 
-遇到时工具会在 `log\` 下写一份 **`flags-mismatch-<时间>.txt`**，里面含：实际 encoder 路径 + 文件版本 + SHA256 前 12 位、容器魔数、源分辨率/fps、flags 位解析。
+遇到时工具会在 `log\` 下写一份 **`flags-mismatch-<时间>.txt`**，里面含：实际 encoder 路径 + 文件版本 + SHA256 前 12 位、容器魔数、源分辨率/fps、`decoded` 与 `expected` 位解析对照。
 
 处理顺序：
 
-1. **别改头**。`0x40010 → 0x40012` 改头是无效的（数据位流与 flags 强绑定，游戏内照样崩）。只有重新编码才算数。
-2. 确认你用的是本工具验证过的 **RAD Video Tools**（免费版即可）：本机实测 **2025.05** 与 **2026.06** 配 `/V6344` 都稳定产出 `0x40012`。若你的版本更新/更旧且 `flags` 不对，换成本工具附带流程用的版本重装一次再跑。
+1. **先看编码器版本**（最常见原因）：`radvideo64.exe` 右键→属性→详细信息。
+   - **2026.11** = 官方当前最新版，实测会给视频加 bit 27 → 装回 **2026.06 或更早**（2025.05 / 2026.06 实测都正常）。这是目前**唯一已知有效的解法**。
+   - 从 v1.3.2 起，编码器 ≥ 2026.11 时依赖扫描阶段就会打 `[WARN]`，不用等编码完才发现。
+2. **别改头**。`0x40010 → 0x40012` 改头是无效的（数据位流与 flags 强绑定，游戏内照样崩）；`0x8000000` 能否安全剥离同样**未经实测**。只有重新编码才算数。
 3. 确认**没有手动**用 RAD 图形界面编过视频再塞进 `output\` —— 那个流程不传 `/V6344`，必崩。
 4. 把 `log\build-mod-*.log` + `log\flags-mismatch-*.txt` 一起回贴：定位需要的硬信息（编码器路径/版本/SHA256、魔数、flags 位解析）都在那个 `.txt` 里；日志用来还原当时的完整过程。
 
@@ -148,7 +151,7 @@ flags 不是随便一个数，它跟编码参数绑定（本机实测 `/V` → f
 
 # hd2-intro-modder
 
-> **Current version v1.3.1** (2026-11-26) | see [CHANGELOG.md](CHANGELOG.md) for what changed
+> **Current version v1.3.2** (2026-11-26) | see [CHANGELOG.md](CHANGELOG.md) for what changed
 
 Turn a MP4 into a Helldivers 2 intro-replacement mod (one command).
 
@@ -183,6 +186,7 @@ Built-in (no install): binktest tools, packager scripts, the base container temp
    - **Default install** (recommended): just click through the installer. The script scans `C:\Program Files\RADVideo\` (no space) and `C:\Program Files\RAD Video Tools\` (old installer, with space) among others.
    - **Inside this project**: copy `radvideo64.exe` (with its DLLs) to the project root or into the `RADVideo\` subfolder - the script checks these locations first.
 3. Note: RAD Video Tools is commercial software - keep it local, **do not** redistribute it with this project or upload it to GitHub.
+4. ⚠️ **Do not use the 2026.11 build** - that is currently RAD's newest download, and measurement shows it adds an extra flags bit to the encoded video, which this tool refuses (see "Flags check failed" below). Use **2026.06 or older** (verified good: 2025.05, 2026.06). The version is shown in `radvideo64.exe` → right-click → Properties → Details.
 
 ### Wwise (only needed to convert audio, free, requires account)
 
@@ -255,14 +259,16 @@ The flags word is tied to the encoder settings (measured `/V` → flags numbers;
 | `0x40011` / `0x40013` | `/V4296` / `/V8392` (other slice settings) | ❌ refused |
 | `0x40014` / `0x40016` | `/V270` (RAD calls it HDR) family | ❌ refused |
 | `0x00000010` and friends without `0x40000` | `/V201` (BA1.1, container becomes `KB2j`) | ❌ refused |
-| `0x8040012` | not reproducible with any `/V` combination so far | ❌ refused (cause still unknown, see below) |
+| **`0x08040012`** (the `0x8040012` from the bug report) | **written by RAD Video Tools 2026.11** (no `/V` choice avoids it) | ❌ refused - **install an older encoder and it works** |
 
-When it happens the tool writes **`log\flags-mismatch-<timestamp>.txt`** containing: the encoder path + file version + first 12 hex chars of its SHA256, the container magic, source resolution/fps, and the flag breakdown.
+When it happens the tool writes **`log\flags-mismatch-<timestamp>.txt`** containing: the encoder path + file version + first 12 hex chars of its SHA256, the container magic, source resolution/fps, and a `decoded` vs `expected` flag breakdown.
 
 What to do:
 
-1. **Do not patch the header.** Turning `0x40010` into `0x40012` does not work — the bitstream is tied to the flag and the game still crashes. Only a re-encode counts.
-2. Use a **RAD Video Tools** build known to work: on the maintainer machine **2025.05** and **2026.06** both produce `0x40012` with `/V6344`. If yours differs and the flags are wrong, reinstall a matching build and rerun.
+1. **Check the encoder version first** (the most common cause): `radvideo64.exe` → right-click → Properties → Details.
+   - **2026.11** is currently RAD's newest download and measurably adds bit 27 → install **2026.06 or older** (2025.05 and 2026.06 both verified good). That is the only known working fix.
+   - From v1.3.2 the tool prints a `[WARN]` during the dependency scan when the encoder is 2026.11 or newer, so you see it before spending time encoding.
+2. **Do not patch the header.** Turning `0x40010` into `0x40012` does not work - the bitstream is tied to the flag and the game still crashes; whether `0x8000000` can be stripped is **untested**. Only a re-encode counts.
 3. Make sure you did **not** encode the video by hand in the RAD GUI and drop it into `output\` — that path never passes `/V6344` and will crash.
 4. Report `log\build-mod-*.log` together with `log\flags-mismatch-*.txt`: the hard facts (encoder path/version/SHA256, container magic, flag breakdown) live in that `.txt`; the log shows the full sequence of what happened.
 

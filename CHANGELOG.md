@@ -1,6 +1,25 @@
 # Changelog
 
-Versions follow the GitHub Releases (`v1.0.0` … `v1.3.1`). Only user-visible changes are listed.
+Versions follow the GitHub Releases (`v1.0.0` … `v1.3.2`). Only user-visible changes are listed.
+
+## v1.3.2 — 2026-11-26
+
+**Root cause of `flags=0x8040012` found: it is the encoder build.** Reproduced locally on the same
+clip - RAD Video Tools **2026.11** (currently RAD's newest download) writes `0x08040012` with
+`/V6344`, while **2025.05** and **2026.06** both write the accepted `0x00040012`. Switching `/V`
+switches does not help on 2026.11 (`/V200` also gives `0x08040012`; `/V2248` → `0x05040010`,
+`/V8392` → `0x0E040013`, `/V270` → `0x0A040016`), so installing an older build is the fix - which
+matches the reporter's own finding that the November build breaks and the older one works.
+
+- The dependency scan now prints a `[WARN]` when the encoder is **2026.11 or newer**, naming the
+  cause and the fix, so the user does not lose an entire encode before finding out.
+- The mismatch report gained an `advice:` line with the same text, lists 2026.11 as "WRITES
+  0x08040012 - do not use", and decodes bit 27 as "RAD Video Tools 2026.11 writes it".
+- README (cn/en): the RAD Video Tools install section and the flags section now say **do not use
+  2026.11, use 2026.06 or older**.
+- `docs/HOW-IT-WORKS` (cn/en): the measured three-build table replaces the "still unexplained" note.
+- Whether `0x08040012` really crashes in game is still **unverified** - the tool refuses it as a
+  conservative rule, not as a measured fact.
 
 ## v1.3.1 — 2026-11-26
 

@@ -201,6 +201,27 @@ function Get-EncoderInfo([string]$Path) {
     return $ver
 }
 
+# RAD Video Tools 2026.11 (the current download as of 2026-11-26) writes an extra flags bit on
+# top of the accepted value. Measured locally on 2026.11 with the same clip, versus 2025.05 and
+# 2026.06 which both produce the plain 0x40012:
+#     /V6344 -> 0x08040012    /V200 -> 0x08040012    /V2248 -> 0x05040010
+#     /V8392 -> 0x0E040013    /V270 -> 0x0A040016
+# No /V combination tried with 2026.11 removed that bit, which matches the external report
+# ("do not use the November build; the old one works"). Because a future build could fix this
+# again, the version is only WARNED about - the flags gate stays the single source of truth.
+function Get-EncoderWarning([string]$Info) {
+    $m = [regex]::Match([string]$Info, '^(\d{4})\.(\d{2})')
+    if (-not $m.Success) { return '' }
+    $year = [int]$m.Groups[1].Value
+    $month = [int]$m.Groups[2].Value
+    if (($year -gt 2026) -or ($year -eq 2026 -and $month -ge 11)) {
+        return ('this encoder (v' + $m.Groups[1].Value + '.' + $m.Groups[2].Value +
+            ') is known to add flags bit 27 (/V6344 -> 0x08040012), so the result will be refused at the flags check. ' +
+            'Install RAD Video Tools 2026.06 or older (the maintainer verified 2025.05 and 2026.06).')
+    }
+    return ''
+}
+
 # Human-readable breakdown of the flags word.
 #
 # Evidence level, stated honestly: the /V -> flags NUMBERS below are byte-verified on this
@@ -227,7 +248,8 @@ function Describe-Flags([uint32]$Flags, [string]$Magic = '') {
     if ($Flags -band 0x4) { $parts += 'bit 2 set (HDR /V value)' }
     if ($Flags -band 0x10) { $parts += 'bit 4 set' } else { $parts += 'bit 4 CLEAR (never seen on a KB2* output)' }
     if ($Flags -band 0x40000) { $parts += 'bit 18 set' } else { $parts += 'bit 18 CLEAR (never seen on a KB2n output)' }
-    $knownMask = [uint32]::MaxValue -bxor [uint32]0x40017   # every bit except 0-1, 2, 4, 18
+    if ($Flags -band 0x8000000) { $parts += 'bit 27 set (RAD Video Tools 2026.11 writes it; 2025.05/2026.06 never do)' }
+    $knownMask = [uint32]::MaxValue -bxor [uint32]0x8040017   # every bit except 0-1, 2, 4, 18, 27
     $unknown = $Flags -band $knownMask
     if ($unknown) { $parts += ('bits not measured anywhere 0x' + $unknown.ToString('X')) }
     return ($parts -join ', ')
@@ -439,6 +461,7 @@ if (-not (Test-Path -LiteralPath $Video)) { W "[FATAL] input not found: $Video" 
 
 $rv     = Find-Radvideo64
 $rvInfo = Get-EncoderInfo $rv
+$rvWarn = Get-EncoderWarning $rvInfo
 $py     = Find-Python
 $ww     = Find-WwiseConsole
 $wproj  = Find-Wproj
@@ -497,6 +520,11 @@ if ($verboseDeps) { W "[2] radvideo64 (video encoder)" "Yellow" }
 if ($rv) { if ($verboseDeps) { W "  [OK]   $rv  (v$rvInfo)" "Green" } }
 else { W "  [MISS] Install RAD Video Tools (free) from https://www.radgametools.com/bnkdown.htm" "Red"
        W "         or drop radvideo64.exe into: $Root" "Red" }
+# Warn on every run, cached or not: this one costs the user an entire encode if it is missed.
+if ($rvWarn) {
+    W "  [WARN] $rvWarn" "Yellow"
+    W "         Check the version: right-click radvideo64.exe -> Properties -> Details" "DarkGray"
+}
 
 if ($verboseDeps) { W "[3] python (packager)" "Yellow" }
 if ($py) { if ($verboseDeps) { W "  [OK]   $py" "Green" } }
@@ -730,6 +758,7 @@ if ($fm.Success) {
         $rep += ('encoded   : ' + $Bk2)
         $rep += ('quarantine: ' + $quarantine)
         $rep += ('encoder   : ' + $rv + '  (v' + $rvInfo + ')')
+        if ($rvWarn) { $rep += ('advice    : ' + $rvWarn) }
         $rep += ('container : ' + $(if ($magic) { $magic } else { 'unreadable' }) + '  (the game only accepts KB2n)')
         $rep += ('command   : radvideo64.exe bink2c "<in>" "<out>" /V6344  (what encode.ps1 intends to pass;')
         $rep += '            a different result means the encoder build or its GUI settings differ)'
@@ -745,8 +774,11 @@ if ($fm.Success) {
         $rep += 'Only the acceptance rule is verified: the game takes 0x40012 from a KB2n container,'
         $rep += 'and 0x40010 crashes in game.'
         $rep += 'Encoders verified to write 0x40012 with /V6344 (same source clip):'
-        $rep += '  RAD Video Tools 2025.05  (sha256 00df5b03a4e5...)'
-        $rep += '  RAD Video Tools 2026.06  (sha256 783c15fd5b35...)'
+        $rep += '  RAD Video Tools 2025.05  (sha256 00df5b03a4e5...)   OK'
+        $rep += '  RAD Video Tools 2026.06  (sha256 783c15fd5b35...)   OK'
+        $rep += '  RAD Video Tools 2026.11  (sha256 c14a2c016f7e...)   WRITES 0x08040012 - do not use'
+        $rep += 'On 2026.11 no /V combination avoided the extra bit (measured /V200, /V2248,'
+        $rep += '/V6344, /V8392, /V270 - all keep it), so installing an older build is the fix.'
         $rep += ''
         $rep += 'Please send this file back together with:'
         $rep += '  - the RAD Video Tools installer version you used (right-click radvideo64.exe -> Details)'
