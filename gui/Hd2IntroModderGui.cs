@@ -27,6 +27,15 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 
+// Version stamped into the EXE so a downloaded file can be identified from Windows Explorer
+// (right-click -> Properties -> Details). Keep it in step with the GitHub release tag and the
+// README "Current version" line; csc writes 0.0.0.0 when no assembly attributes are given.
+// Global attributes must sit after the using directives and before the namespace.
+[assembly: System.Reflection.AssemblyTitle("hd2-intro-modder")]
+[assembly: System.Reflection.AssemblyProduct("hd2-intro-modder")]
+[assembly: System.Reflection.AssemblyVersion("1.3.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.3.1.0")]
+
 namespace Hd2IntroModder
 {
     public class MainForm : Form

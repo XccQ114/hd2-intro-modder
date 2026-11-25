@@ -88,25 +88,32 @@ Detected Wwise / wproj / game paths are written back to `config.json` (`Save-Cfg
 - The one correct command: `radvideo64.exe bink2c <in.mp4> <out.bk2> /V6344`.
 - Output `.bk2` header flags **must be `0x40012`** (`0x40010` crashes the game; header-patching does not help).
 
-#### What the flags word actually encodes (measured, v1.3.0)
+#### Measured `/V` -> flags mapping, and the (inferred) bit meanings
 
-Same clip, one `/V` switch changed per run, reading `.bk2` header `+0x24`:
+> Evidence levels, kept apart on purpose: the flags **numbers** below are byte-measured here (same clip, one `/V` switch changed per run). The "meaning" column is **inferred** from those numbers plus RAD's own `/V` documentation - RAD publishes no flags bit map. The only hard rule verified over and over is: **the game accepts `0x40012` from a `KB2n` container; `0x40010` crashes in game.**
 
-| `/V` value | flags | meaning |
+Same clip, reading `.bk2` header `+0x24`:
+
+| `/V` value | flags (measured) | meaning (inferred) |
 |---|---|---|
-| (no `/V`) | `0x40010` | default 2 slices → **crashes in game** |
-| `2248` (200+2048) | `0x40010` | 2 slices |
-| `4296` (200+4096) | `0x40011` | 3 slices |
-| **`6344` (200+6144)** | **`0x40012`** | **4 slices ← what the game needs** |
-| `8392` (200+8192) | `0x40013` | 8 slices |
-| `270` (HDR) | `0x40014` | HDR bit (bit 2) |
-| `201` (BA1.1 instead of BA2) | `0x40000` clear | audio codec bit (bit 18) |
+| (no `/V`) | `0x40010` | default slice setting → **crashes in game** |
+| `2248` (200+2048) | `0x40010` | slice parameter 2048 |
+| `4296` (200+4096) | `0x40011` | slice parameter 4096 |
+| **`6344` (200+6144)** | **`0x40012`** | slice parameter 6144 ← **what the game needs** |
+| `8392` (200+8192) | `0x40013` | slice parameter 8192 |
+| `270` (RAD calls it HDR) | `0x40014` | bit 2 set |
+| `270+6144` | `0x40016` | bit 2 + slice bits |
+| `201` (BA1.1 instead of BA2) | `0x00000010` (no `0x40000`) | bit 18 clear - but that file's magic is `KB2j`, **not** `KB2n` |
 
-→ **the flags word encodes encoder settings**: bits 0-1 = slice count (2/3/4/8 → `00/01/10/11`), bit 2 = HDR, bit 18 = Bink Audio 2. `/V6344` is the only correct value because it asks for "Bink 2 + BA2" *and* "4 slices" at once.
+**Why "meaning" is only an inference**
+- bits 0-1 move with RAD's slice parameters (2048/4096/6144/8192 → `00/01/10/11`), but the **slice count itself is not readable from the header** - "2/3/4/8 slices" is RAD's wording mapped onto those bits.
+- bit 18 co-varies with the `KB2n` magic in all 36 samples (set on every KB2n, clear on every KB2j/KB2m), so "bit 18 = Bink Audio 2" and "bit 18 = KB2n container" **cannot be separated** by this corpus.
+- bit 2 appears only on the `/V` values RAD labels HDR, and those files also change `+0x2C` feature code and `+0x34` layout - it looks more like "another header profile" than a proven HDR flag.
+- bit 4 (`0x10`) is set on every `KB2*` output but has no matching `/V` switch, so its job is unknown - the report therefore only says "bit 4 set/clear" and explains nothing further. It is also why two different flags can decode to the same text (`0x40002` vs `0x40012` differ only in bit 4).
 
-**The encoder build matters too**: with the same `/V6344`, both verified builds on the maintainer machine (RAD Video Tools **2025.05**, `sha256 00df5b03a4e5…` and **2026.06**, `sha256 783c15fd5b35…`) always produce `0x40012`. `encode.ps1` prints the exact encoder path + file version on every run, so the log always says which build wrote the file.
+**Encoder identity**: with the same `/V6344`, both verified builds on the maintainer machine (RAD Video Tools **2025.05**, `sha256 00df5b03a4e5…` and **2026.06**, `sha256 783c15fd5b35…`) always produce `0x40012`. `encode.ps1` prints the exact encoder path + file version to the console / GUI panel (subprocess stdout does not reach the `log\build-mod-*.log` transcript, so a successful run's log does not contain that line; a flags mismatch does, inside the report).
 
-**`0x8040012` (bit 27) is still unexplained**: one external report showed that value. It could not be reproduced here with either verified encoder or with any `/V` combination tried (HDR, slices, VAQ, BA1.1, alpha source). When the tool sees it, it refuses to ship and writes `log\flags-mismatch-<timestamp>.txt` (encoder version + SHA256 prefix + source resolution/fps + flag breakdown) — send that file plus your radvideo64 version.
+**`0x8040012` (bit 27) is still unexplained**: one external report showed that value. It could not be reproduced here with either verified encoder or with any `/V` combination tried (HDR, slices, VAQ, BA1.1, alpha source). When the tool sees it, it refuses to ship and writes `log\flags-mismatch-<timestamp>.txt` (encoder version + SHA256 prefix + container magic + source resolution/fps + flag breakdown) — send that file plus your radvideo64 version.
 
 ### Layer 2: audio (`BinkExtractAudio.exe` + `WwiseConsole.exe`)
 ```

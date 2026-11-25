@@ -37,19 +37,20 @@ if (-not $rv) {
 }
 $rvPath = if ($rv -is [System.Management.Automation.CommandInfo]) { $rv.Source } else { $rv.ToString() }
 
-# Which encoder build produced the file matters: the flags word (/V6344 -> 0x40012 on the
-# verified builds) is written by bink2c itself, so a "wrong flags" report is only actionable
-# when the encoder identity comes with it. Print path + file version up front.
-$rvVer = ''
-try { $rvVer = [string](Get-Item -LiteralPath $rvPath).VersionInfo.FileVersion } catch { }
-Write-Host ("[OK] encoder: " + $rvPath + $(if ($rvVer) { "  (v" + $rvVer + ")" } else { "" }))
-
 # ---- check input ----
 if (-not (Test-Path -LiteralPath $Video)) {
     Write-Host ("[ERROR] input not found: " + $Video) -ForegroundColor Red
     exit 1
 }
 $inputFull = (Resolve-Path -LiteralPath $Video).Path
+
+# Which encoder build produced the file matters: the flags word (/V6344 -> 0x40012 on the
+# verified builds) is written by bink2c itself, so a "wrong flags" report is only actionable
+# when the encoder identity comes with it. Print path + file version up front - after the
+# input check, so a wrong path never shows "[OK]" before the error.
+$rvVer = ''
+try { $rvVer = [string](Get-Item -LiteralPath $rvPath).VersionInfo.FileVersion } catch { }
+Write-Host ("[OK] encoder: " + $rvPath + $(if ($rvVer) { "  (v" + $rvVer + ")" } else { "" }))
 
 # ---- output path ----
 if (-not $Output) {
@@ -130,10 +131,16 @@ function Get-AsciiWorkDir {
     return (Join-Path $env:SystemDrive 'hd2_encode_tmp')
 }
 
-# ---- clean stale .tmp from a previous interrupted run (bink2c writes <out>.tmp first) ----
-if (Test-Path -LiteralPath ($outputFull + '.tmp')) {
-    Write-Host "[INFO] removing stale temp file from a previous interrupted run: $outputFull.tmp" -ForegroundColor Yellow
-    Remove-Item -LiteralPath ($outputFull + '.tmp') -Force
+# ---- clean stale leftovers from a previous run ----
+# bink2c writes <out>.tmp first. A left-over <out> is worse than a temp file: Wait-Bk2 below
+# treats "the final file exists and its size stops changing" as success, so an OLD video.bk2
+# would be accepted as this run's output - it could even pass the flags check in
+# build-mod.ps1 while showing the previous video. Delete both before encoding.
+foreach ($stale in @($outputFull, ($outputFull + '.tmp'))) {
+    if (Test-Path -LiteralPath $stale) {
+        Write-Host ("[INFO] removing stale file from a previous run: " + $stale) -ForegroundColor Yellow
+        Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # ---- encode ----

@@ -1,5 +1,7 @@
 # hd2-intro-modder
 
+> **当前版本 v1.3.1**（2026-11-26）｜ 变更历史见 [CHANGELOG.md](CHANGELOG.md)
+
 把一段 MP4 打包成《绝地潜兵 2》开场动画替换 mod（一条命令）。
 
 ## 环境依赖
@@ -85,7 +87,7 @@ powershell -ExecutionPolicy Bypass -File build-mod.ps1 -Video 视频.mp4 -Wem �
 ## 注意
 
 - 视频用 `bink2c /V6344` 编码（flags=0x40012），非 ASCII 路径已处理。
-- 源视频自动适配：<720p 重压为 1280x720（否则游戏内花屏）；超过 **1440p 或 60fps** 的源一律压到上限 **2560x1440 / 60fps**（帧率跟随源——源只有 30fps 就保持 30fps）。这一步有 NVIDIA 显卡时自动用 **NVENC** 加速。
+- 源视频自动适配：<720p 重压为 1280x720（否则游戏内花屏）；高度超过 **1440p** 的源缩到 **2560x1440**，帧率超过 **60fps** 的源降到 **60fps**（分辨率不变，帧率跟随源——源只有 30fps 就保持 30fps）。这一步有 NVIDIA 显卡时自动用 **NVENC** 加速。
   - 参考：游戏原版开场动画是 `1280x720@30`，原版告示是 `3840x2160@30`，两者都在上述上限内。
   - 为什么要压：`bink2c` 编码耗时随「像素数 × 帧数」增长，且它**只能跑 CPU**（RAD 官方说明其压缩器为多线程 CPU 实现，无 GPU 通路）。4K/120fps 源会让编码时间放大到 30 分钟以上。
 - 音频来自视频自带音轨（提取后转 Wwise Vorbis wem），或直接用你的 `-Wem`。
@@ -96,24 +98,25 @@ powershell -ExecutionPolicy Bypass -File build-mod.ps1 -Video 视频.mp4 -Wem �
 
 编码完成后工具会读 `.bk2` 头的 flags，必须正好等于 `0x40012`，否则**不输出成品**（半成品移入 `output\failed\`）。
 
-flags 不是随便一个数，它是**编码参数位图**（本机实测）：
+flags 不是随便一个数，它跟编码参数绑定（本机实测 `/V` → flags 的数值；括号里是推断含义，RAD 不公开位图）：
 
-| 值 | 含义 | 后果 |
+| flags（实测） | 对应 `/V` | 后果 |
 |---|---|---|
-| `0x40012` | Bink2 + Bink Audio 2 + **4 slices** | ✅ 游戏可用 |
-| `0x40010` | 同上但 **2 slices**（例如手动用 RAD 图形界面编的、或 `/V6344` 没生效） | ❌ 游戏内崩溃 |
-| `0x40011` / `0x40013` | 3 slices / 8 slices | ❌ 拒绝输出 |
-| `0x40014` | 带 HDR 位（用了 `/V270` 之类） | ❌ 拒绝输出 |
-| `0x8040012` | 多出一个未知 bit27 | ❌ 拒绝输出（成因尚未查清，见下） |
+| `0x40012` | `/V6344` | ✅ 游戏可用（唯一被接受的组合） |
+| `0x40010` | 不带 `/V`、`/V200`、`/V2248` | ❌ 游戏内崩溃（如手动用 RAD 图形界面编的、或 `/V6344` 没生效） |
+| `0x40011` / `0x40013` | `/V4296` / `/V8392`（其它 slice 档） | ❌ 拒绝输出 |
+| `0x40014` / `0x40016` | `/V270`（RAD 称 HDR）系列 | ❌ 拒绝输出 |
+| `0x00000010` 等无 `0x40000` 位 | `/V201`（BA1.1，且容器变成 `KB2j`） | ❌ 拒绝输出 |
+| `0x8040012` | 目前无法用任何 `/V` 组合复现 | ❌ 拒绝输出（成因尚未查清，见下） |
 
-遇到时工具会在 `log\` 下写一份 **`flags-mismatch-<时间>.txt`**，里面含：实际 encoder 路径 + 文件版本 + SHA256 前 12 位、源分辨率/fps、flags 位解析。
+遇到时工具会在 `log\` 下写一份 **`flags-mismatch-<时间>.txt`**，里面含：实际 encoder 路径 + 文件版本 + SHA256 前 12 位、容器魔数、源分辨率/fps、flags 位解析。
 
 处理顺序：
 
 1. **别改头**。`0x40010 → 0x40012` 改头是无效的（数据位流与 flags 强绑定，游戏内照样崩）。只有重新编码才算数。
 2. 确认你用的是本工具验证过的 **RAD Video Tools**（免费版即可）：本机实测 **2025.05** 与 **2026.06** 配 `/V6344` 都稳定产出 `0x40012`。若你的版本更新/更旧且 `flags` 不对，换成本工具附带流程用的版本重装一次再跑。
 3. 确认**没有手动**用 RAD 图形界面编过视频再塞进 `output\` —— 那个流程不传 `/V6344`，必崩。
-4. 把 `log\build-mod-*.log` + `log\flags-mismatch-*.txt` 一起回贴，里面已经带了定位所需全部信息。
+4. 把 `log\build-mod-*.log` + `log\flags-mismatch-*.txt` 一起回贴：定位需要的硬信息（编码器路径/版本/SHA256、魔数、flags 位解析）都在那个 `.txt` 里；日志用来还原当时的完整过程。
 
 ## 故障反馈（报错怎么办）
 
@@ -144,6 +147,8 @@ flags 不是随便一个数，它是**编码参数位图**（本机实测）：
 ---
 
 # hd2-intro-modder
+
+> **Current version v1.3.1** (2026-11-26) | see [CHANGELOG.md](CHANGELOG.md) for what changed
 
 Turn a MP4 into a Helldivers 2 intro-replacement mod (one command).
 
@@ -230,7 +235,7 @@ Copy both into `Helldivers 2\data\`. Patch numbers must be 0..N with no gaps.
 ## Notes
 
 - Video is encoded with `bink2c /V6344` (flags=0x40012). Non-ASCII paths are handled.
-- Source video is auto-adjusted: <720p is upscaled to 1280x720 (otherwise it corrupts in-game); anything above **1440p or 60fps** is capped to **2560x1440 / 60fps** (frame rate follows the source - a 30fps source stays 30fps). This pass uses **NVENC** automatically when an NVIDIA GPU is present.
+- Source video is auto-adjusted: <720p is upscaled to 1280x720 (otherwise it corrupts in-game); sources **taller than 1440p** are scaled to **2560x1440**, and sources above **60fps** are dropped to **60fps** (resolution untouched, frame rate otherwise follows the source - a 30fps source stays 30fps). This pass uses **NVENC** automatically when an NVIDIA GPU is present.
   - For reference: the vanilla intro is `1280x720@30` and the vanilla notice is `3840x2160@30` - both sit inside those caps.
   - Why the cap: `bink2c` encode time scales with pixels x frames, and it is **CPU-only** (RAD documents the compressor as massively multi-threaded with no GPU path). A 4K/120fps source pushes encoding past 30 minutes.
 - Audio comes from the video's own track (extracted, then Wwise Vorbis wem), or your `-Wem`.
@@ -241,24 +246,25 @@ Copy both into `Helldivers 2\data\`. Patch numbers must be 0..N with no gaps.
 
 After encoding, the tool reads the `.bk2` header flags; they must be exactly `0x40012`, otherwise **no mod is produced** (the half-built output is quarantined into `output\failed\`).
 
-The flags word is not arbitrary — it is a **bitmap of encoder settings** (measured on this project):
+The flags word is tied to the encoder settings (measured `/V` → flags numbers; the meanings in brackets are inferred - RAD publishes no bit map):
 
-| Value | Meaning | Result |
+| flags (measured) | comes from | result |
 |---|---|---|
-| `0x40012` | Bink2 + Bink Audio 2 + **4 slices** | ✅ game-compatible |
-| `0x40010` | same but **2 slices** (e.g. encoded by hand in the RAD GUI, or `/V6344` did not apply) | ❌ crashes in game |
-| `0x40011` / `0x40013` | 3 slices / 8 slices | ❌ refused |
-| `0x40014` | HDR bit set (`/V270`-style) | ❌ refused |
-| `0x8040012` | an extra unknown bit 27 | ❌ refused (cause still unknown, see below) |
+| `0x40012` | `/V6344` | ✅ game-compatible (the only accepted combination) |
+| `0x40010` | no `/V`, `/V200`, `/V2248` | ❌ crashes in game (e.g. encoded by hand in the RAD GUI, or `/V6344` did not apply) |
+| `0x40011` / `0x40013` | `/V4296` / `/V8392` (other slice settings) | ❌ refused |
+| `0x40014` / `0x40016` | `/V270` (RAD calls it HDR) family | ❌ refused |
+| `0x00000010` and friends without `0x40000` | `/V201` (BA1.1, container becomes `KB2j`) | ❌ refused |
+| `0x8040012` | not reproducible with any `/V` combination so far | ❌ refused (cause still unknown, see below) |
 
-When it happens the tool writes **`log\flags-mismatch-<timestamp>.txt`** containing: the encoder path + file version + first 12 hex chars of its SHA256, source resolution/fps, and the flag breakdown.
+When it happens the tool writes **`log\flags-mismatch-<timestamp>.txt`** containing: the encoder path + file version + first 12 hex chars of its SHA256, the container magic, source resolution/fps, and the flag breakdown.
 
 What to do:
 
 1. **Do not patch the header.** Turning `0x40010` into `0x40012` does not work — the bitstream is tied to the flag and the game still crashes. Only a re-encode counts.
 2. Use a **RAD Video Tools** build known to work: on the maintainer machine **2025.05** and **2026.06** both produce `0x40012` with `/V6344`. If yours differs and the flags are wrong, reinstall a matching build and rerun.
 3. Make sure you did **not** encode the video by hand in the RAD GUI and drop it into `output\` — that path never passes `/V6344` and will crash.
-4. Report `log\build-mod-*.log` together with `log\flags-mismatch-*.txt`; they already contain everything needed to diagnose.
+4. Report `log\build-mod-*.log` together with `log\flags-mismatch-*.txt`: the hard facts (encoder path/version/SHA256, container magic, flag breakdown) live in that `.txt`; the log shows the full sequence of what happened.
 
 ## Troubleshooting / reporting bugs
 

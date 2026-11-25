@@ -64,6 +64,10 @@ New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 $LogFile = Join-Path $LogDir ("build-mod-" + (Get-Date -Format 'yyyyMMdd-HHmmss') + ".log")
 $oldLogs = @(Get-ChildItem -LiteralPath $LogDir -Filter 'build-mod-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip 19)
 foreach ($l in $oldLogs) { Remove-Item -LiteralPath $l.FullName -Force -ErrorAction SilentlyContinue }
+# flags-mismatch reports get the same rotation, otherwise a machine that keeps failing fills
+# the log folder with one report per attempt.
+$oldReports = @(Get-ChildItem -LiteralPath $LogDir -Filter 'flags-mismatch-*.txt' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -Skip 19)
+foreach ($r in $oldReports) { Remove-Item -LiteralPath $r.FullName -Force -ErrorAction SilentlyContinue }
 try { Start-Transcript -Path $LogFile -Force | Out-Null } catch { }
 trap {
     Write-Host ""
@@ -128,12 +132,14 @@ function W([string]$msg, [string]$color = 'White') { Write-Host $msg -Foreground
 # Quarantine a half-built output folder so the user can never pick up an unusable mod.
 # At most $MaxFailedKept quarantined builds are kept; the oldest ones are removed first.
 function Move-FailedOutput {
-    param([string]$Dir, [string]$Reason)
+    param([string]$Dir, [string]$Reason, [string]$Stamp = '')
     if (-not (Test-Path -LiteralPath $Dir)) { return }
     $failedRoot = Join-Path $OutRoot 'failed'
     New-Item -ItemType Directory -Path $failedRoot -Force | Out-Null
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $dest = Join-Path $failedRoot ((Split-Path $Dir -Leaf) + '-' + $stamp)
+    # A caller that already wrote a report naming the quarantine path passes its own stamp,
+    # so the report and the folder agree to the second.
+    if (-not $Stamp) { $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss' }
+    $dest = Join-Path $failedRoot ((Split-Path $Dir -Leaf) + '-' + $Stamp)
     try { Set-Content -LiteralPath (Join-Path $Dir 'FAILED.txt') -Value $Reason -Encoding utf8 } catch { }
     Move-Item -LiteralPath $Dir -Destination $dest -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $dest) { W ("  [QUARANTINE] unusable output moved to: " + $dest) "Red" }
@@ -195,22 +201,35 @@ function Get-EncoderInfo([string]$Path) {
     return $ver
 }
 
-# Human-readable breakdown of the flags word. Bit meanings below were measured on this
-# project (same clip, one /V switch at a time), not copied from documentation:
-#   bits 0-1  video slice mode   2 slices -> 00, 3 -> 01, 4 -> 10, 8 -> 11  (/V2248/4296/6344/8392)
-#   bit 2     HDR encode         /V270 (HDR) -> 0x40014 vs /V270+6144 -> 0x40016
-#   bit 4     base Bink 2 marker always set for KB2* output
-#   bit 18    Bink Audio 2 track /V200 (BA2) -> 0x40010, /V201 (BA1.1) -> 0x00000010
-# The game only accepts 0x40012 = KB2n + 4 slices + BA2. Anything else is refused.
-function Describe-Flags([uint32]$Flags) {
+# Human-readable breakdown of the flags word.
+#
+# Evidence level, stated honestly: the /V -> flags NUMBERS below are byte-verified on this
+# machine (same clip, one /V switch at a time). The bit MEANINGS are an inference from those
+# numbers plus RAD's own /V documentation - RAD publishes no flags bit map, so "bits 0-1 =
+# slice mode" etc. must not be quoted as an established fact. What is certain is the
+# acceptance rule: the game only takes 0x40012 from a KB2n container.
+#   bits 0-1  steps with the /V slice setting  /V2248->00, 4296->01, 6344->10, 8392->11
+#   bit 2     set only by the HDR /V values    /V270 -> 0x40014, /V270+6144 -> 0x40016
+#   bit 4     set on every KB2* output seen so far (KB2j/KB2m files never set bit 18)
+#   bit 18    set on every KB2n output seen so far  (/V201, which drops it, writes KB2j)
+# Bit 18 co-varies perfectly with the KB2n container in all 36 samples, so "Bink Audio 2
+# track" and "KB2n container" could not be separated here - do not treat it as proven.
+function Describe-Flags([uint32]$Flags, [string]$Magic = '') {
     $parts = @()
+    # A non-KB2n container has a different header layout, so decoding its flags with these
+    # rules would produce confident nonsense (measured: a Bink1 file with flags 0 decodes
+    # to "2 slices, no Bink Audio 2").
+    if ($Magic -and $Magic -ne 'KB2n') {
+        return ('container ' + $Magic + ' - not a KB2n intro container, so the flags bit meanings below do not apply (raw flags 0x' + $Flags.ToString('X8') + ')')
+    }
     $slice = [int]($Flags -band 0x3)
-    $parts += @('2 slices', '3 slices', '4 slices', '8 slices')[$slice]
-    if ($Flags -band 0x4) { $parts += 'HDR' }
-    if ($Flags -band 0x40000) { $parts += 'Bink Audio 2' } else { $parts += 'no Bink Audio 2' }
-    $knownMask = [uint32]::MaxValue -bxor [uint32]0x40017   # every bit except the four measured above
+    $parts += @('slice bits 00', 'slice bits 01', 'slice bits 10', 'slice bits 11')[$slice]
+    if ($Flags -band 0x4) { $parts += 'bit 2 set (HDR /V value)' }
+    if ($Flags -band 0x10) { $parts += 'bit 4 set' } else { $parts += 'bit 4 CLEAR (never seen on a KB2* output)' }
+    if ($Flags -band 0x40000) { $parts += 'bit 18 set' } else { $parts += 'bit 18 CLEAR (never seen on a KB2n output)' }
+    $knownMask = [uint32]::MaxValue -bxor [uint32]0x40017   # every bit except 0-1, 2, 4, 18
     $unknown = $Flags -band $knownMask
-    if ($unknown) { $parts += ('unknown bits 0x' + $unknown.ToString('X')) }
+    if ($unknown) { $parts += ('bits not measured anywhere 0x' + $unknown.ToString('X')) }
     return ($parts -join ', ')
 }
 
@@ -585,6 +604,12 @@ $Bk2 = Join-Path $Out 'video.bk2'
 $ReEnc = Join-Path $Out 'reencoded-720p.mp4'
 $ReEnc2k = Join-Path $Out 'reencoded-2k60.mp4'
 
+# Keep the path the user actually handed us. The guards below REPLACE $Video with an
+# intermediate re-encode, and a report that calls that intermediate file "source" (while
+# quoting the ORIGINAL resolution next to it) is self-contradictory - the first red-team pass
+# caught exactly that.
+$SrcVideo = $Video
+
 # ---- resolution/fps guards: <720p upscale to 1280x720 (kit pitfall #15: corrupts in-game);
 #      4K >60fps downscale to 2560x1440@60 (bink encode of 4K120 takes ~1h+, 2K60 is ~4x faster) ----
 if ($ffmpegExe -and $ffprobeExe) {
@@ -669,50 +694,69 @@ if (-not (Test-Path -LiteralPath $Bk2) -or (Get-Item -LiteralPath $Bk2).Length -
 # because a bare "flags=0x..." line (the shape of the only external bug report so far,
 # flags=0x8040012) cannot be diagnosed without the encoder identity.
 $ana = powershell.exe -NoProfile -ExecutionPolicy Bypass -File $AnalyzePs1 -Paths $Bk2 2>$null
-$flagsOk = $false
 $fm = [regex]::Match((($ana | Out-String)), 'fl=0x([0-9A-Fa-f]+)')
 if ($fm.Success) {
     $flags = [Convert]::ToUInt32($fm.Groups[1].Value, 16)
     if ($flags -eq 0x40012) {
-        $flagsOk = $true
         W "  [OK]   flags=0x40012 (game-compatible)" "Green"
     } else {
         $diff = $flags -bxor [uint32]0x40012
+        # container magic: the flags rules only hold for a KB2n (Bink 2) intro container
+        $magic = ''
+        try {
+            $hfs = [System.IO.File]::Open($Bk2, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+            try { $hb = New-Object byte[] 4; [void]$hfs.Read($hb, 0, 4); $magic = [System.Text.Encoding]::ASCII.GetString($hb) } finally { $hfs.Dispose() }
+        } catch { }
+        $flagsText = Describe-Flags $flags $magic
         W ("  [FATAL] flags=0x{0:X8} - the game requires 0x40012 and may crash otherwise." -f $flags) "Red"
-        W ("          differing bits vs 0x40012: 0x{0:X8}" -f $diff) "Red"
-        W ("          decoded: " + (Describe-Flags $flags)) "Red"
+        W ("          container: " + $(if ($magic) { $magic } else { 'unreadable' }) + "   differing bits vs 0x40012: 0x" + $diff.ToString('X8')) "Red"
+        W ("          decoded: " + $flagsText) "Red"
         W "          Refusing to produce a mod that can crash the game." "Red"
         # ---- write a report the user can paste back verbatim ----
+        # fps is formatted with the invariant culture: "{0:N2}" turns 59.94 into "59,94" on
+        # a de-DE machine, which then looks like a different number in the report.
+        $inv = [System.Globalization.CultureInfo]::InvariantCulture
         $srcDesc = 'unknown'
         if ($srcW -and $srcH) { $srcDesc = ("{0}x{1}" -f $srcW, $srcH) }
-        if ($fps) { $srcDesc = $srcDesc + (" @ {0:N2}fps" -f [double]$fps) }
+        if ($fps) { $srcDesc = $srcDesc + (' @ ' + ([double]$fps).ToString('0.00', $inv) + 'fps') }
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $quarantine = Join-Path (Join-Path $OutRoot 'failed') ((Split-Path $Out -Leaf) + '-' + $stamp)
         $rep = @()
         $rep += 'HD2 intro modder - flags mismatch report'
         $rep += ('generated : ' + (Get-Date).ToString('s'))
-        $rep += ('source    : ' + $Video + '  [' + $srcDesc + ']')
+        $rep += ('source    : ' + $SrcVideo + '  [' + $srcDesc + ']')
+        if ($Video -ne $SrcVideo) { $rep += ('encodedFrom: ' + $Video + '  (intermediate re-encode made by the resolution guards)') }
+        $rep += ('output    : ' + $Out)
         $rep += ('encoded   : ' + $Bk2)
+        $rep += ('quarantine: ' + $quarantine)
         $rep += ('encoder   : ' + $rv + '  (v' + $rvInfo + ')')
-        $rep += ('command   : radvideo64.exe bink2c "<in>" "<out>" /V6344  (the switches encode.ps1 passes)')
+        $rep += ('container : ' + $(if ($magic) { $magic } else { 'unreadable' }) + '  (the game only accepts KB2n)')
+        $rep += ('command   : radvideo64.exe bink2c "<in>" "<out>" /V6344  (what encode.ps1 intends to pass;')
+        $rep += '            a different result means the encoder build or its GUI settings differ)'
         $rep += ('flags     : 0x' + $flags.ToString('X8') + '   expected 0x40012   diff 0x' + $diff.ToString('X8'))
-        $rep += ('decoded   : ' + (Describe-Flags $flags))
+        $rep += ('decoded   : ' + $flagsText)
+        $rep += ('expected  : ' + (Describe-Flags ([uint32]0x40012) $magic) + '   (what the game wants)')
         $rep += ''
-        $rep += 'What the tool already knows about flags (measured on the maintainer machine):'
-        $rep += '  bits 0-1 = video slices   2/3/4/8 slices -> 0x0/0x1/0x2/0x3 (game needs 4 slices)'
-        $rep += '  bit 2    = HDR encode     /V270 style values set it'
-        $rep += '  bit 18   = Bink Audio 2   /V200 style values set it'
-        $rep += '  verified encoders that produce exactly 0x40012 with /V6344 (same source clip):'
-        $rep += '    RAD Video Tools 2025.05  (sha256 00df5b03a4e5...)'
-        $rep += '    RAD Video Tools 2026.06  (sha256 783c15fd5b35...)'
+        $rep += 'Measured /V -> flags values on the maintainer machine (same clip, one switch at a time):'
+        $rep += '  no /V -> 0x40010   /V2248 -> 0x40010   /V4296 -> 0x40011   /V6344 -> 0x40012'
+        $rep += '  /V8392 -> 0x40013  /V270  -> 0x40014   /V270+6144 -> 0x40016  /V201 -> 0x00000010'
+        $rep += 'The bit MEANINGS above are inferred from those numbers plus the way RAD names its'
+        $rep += '/V switches (no public flags bit map exists) - they are not read out of the format.'
+        $rep += 'Only the acceptance rule is verified: the game takes 0x40012 from a KB2n container,'
+        $rep += 'and 0x40010 crashes in game.'
+        $rep += 'Encoders verified to write 0x40012 with /V6344 (same source clip):'
+        $rep += '  RAD Video Tools 2025.05  (sha256 00df5b03a4e5...)'
+        $rep += '  RAD Video Tools 2026.06  (sha256 783c15fd5b35...)'
         $rep += ''
         $rep += 'Please send this file back together with:'
         $rep += '  - the RAD Video Tools installer version you used (right-click radvideo64.exe -> Details)'
         $rep += '  - whether you changed any setting inside the Bink Video Compressor window'
         $rep += 'Do NOT hand-patch the header: only a re-encode with a correct encoder is verified.'
-        $repFile = Join-Path $LogDir ('flags-mismatch-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.txt')
+        $repFile = Join-Path $LogDir ('flags-mismatch-' + $stamp + '.txt')
         try { Set-Content -LiteralPath $repFile -Value $rep -Encoding utf8 } catch { }
         foreach ($l in $rep) { W ('          ' + $l) "DarkGray" }
         if (Test-Path -LiteralPath $repFile) { W ('  [REPORT] saved: ' + $repFile) "Yellow" }
-        Move-FailedOutput -Dir $Out -Reason ("encoded .bk2 has flags=0x" + $flags.ToString('X') + " instead of 0x40012")
+        Move-FailedOutput -Dir $Out -Reason ("encoded .bk2 has flags=0x" + $flags.ToString('X8') + " instead of 0x40012") -Stamp $stamp
         Stop-Script 1
     }
 } else {
@@ -810,6 +854,5 @@ if ($Zip) { W ("  zip   : " + $zipPath) "Green" }
 W ""
 W "Install: copy both files into 'Helldivers 2\data\'." "White"
 W "  - patch numbers must be 0..N with no gaps, or the mod is ignored." "White"
-if (-not $flagsOk) { W "  - WARNING: flags != 0x40012 - game may crash. Re-encode." "Red" }
 
 Stop-Script 0
