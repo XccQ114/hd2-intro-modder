@@ -88,6 +88,26 @@ Detected Wwise / wproj / game paths are written back to `config.json` (`Save-Cfg
 - The one correct command: `radvideo64.exe bink2c <in.mp4> <out.bk2> /V6344`.
 - Output `.bk2` header flags **must be `0x40012`** (`0x40010` crashes the game; header-patching does not help).
 
+#### What the flags word actually encodes (measured, v1.3.0)
+
+Same clip, one `/V` switch changed per run, reading `.bk2` header `+0x24`:
+
+| `/V` value | flags | meaning |
+|---|---|---|
+| (no `/V`) | `0x40010` | default 2 slices → **crashes in game** |
+| `2248` (200+2048) | `0x40010` | 2 slices |
+| `4296` (200+4096) | `0x40011` | 3 slices |
+| **`6344` (200+6144)** | **`0x40012`** | **4 slices ← what the game needs** |
+| `8392` (200+8192) | `0x40013` | 8 slices |
+| `270` (HDR) | `0x40014` | HDR bit (bit 2) |
+| `201` (BA1.1 instead of BA2) | `0x40000` clear | audio codec bit (bit 18) |
+
+→ **the flags word encodes encoder settings**: bits 0-1 = slice count (2/3/4/8 → `00/01/10/11`), bit 2 = HDR, bit 18 = Bink Audio 2. `/V6344` is the only correct value because it asks for "Bink 2 + BA2" *and* "4 slices" at once.
+
+**The encoder build matters too**: with the same `/V6344`, both verified builds on the maintainer machine (RAD Video Tools **2025.05**, `sha256 00df5b03a4e5…` and **2026.06**, `sha256 783c15fd5b35…`) always produce `0x40012`. `encode.ps1` prints the exact encoder path + file version on every run, so the log always says which build wrote the file.
+
+**`0x8040012` (bit 27) is still unexplained**: one external report showed that value. It could not be reproduced here with either verified encoder or with any `/V` combination tried (HDR, slices, VAQ, BA1.1, alpha source). When the tool sees it, it refuses to ship and writes `log\flags-mismatch-<timestamp>.txt` (encoder version + SHA256 prefix + source resolution/fps + flag breakdown) — send that file plus your radvideo64 version.
+
 ### Layer 2: audio (`BinkExtractAudio.exe` + `WwiseConsole.exe`)
 ```
 video.bk2 ──BinkExtractAudio──▶ audio.wav (PCM, pulled frame-by-frame from the BINK track)

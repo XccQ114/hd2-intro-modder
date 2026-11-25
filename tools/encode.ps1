@@ -37,6 +37,13 @@ if (-not $rv) {
 }
 $rvPath = if ($rv -is [System.Management.Automation.CommandInfo]) { $rv.Source } else { $rv.ToString() }
 
+# Which encoder build produced the file matters: the flags word (/V6344 -> 0x40012 on the
+# verified builds) is written by bink2c itself, so a "wrong flags" report is only actionable
+# when the encoder identity comes with it. Print path + file version up front.
+$rvVer = ''
+try { $rvVer = [string](Get-Item -LiteralPath $rvPath).VersionInfo.FileVersion } catch { }
+Write-Host ("[OK] encoder: " + $rvPath + $(if ($rvVer) { "  (v" + $rvVer + ")" } else { "" }))
+
 # ---- check input ----
 if (-not (Test-Path -LiteralPath $Video)) {
     Write-Host ("[ERROR] input not found: " + $Video) -ForegroundColor Red
@@ -136,6 +143,9 @@ if (-not $needTranscode) {
     Write-Host ("     in:  " + $inputFull)
     Write-Host ("     out: " + $outputFull)
     Write-Host "  calling radvideo64.exe (GUI window pops up; it compresses on its own)..."
+    # /V6344 = 200 (Bink 2 + Bink Audio 2) + 6144 (4 slices). Measured on this project:
+    # dropping the switch writes 0x40010, which the game decodes into a crash; 3 slices
+    # writes 0x40011 and 8 slices 0x40013 - only 4 slices gives the required 0x40012.
     & $rvPath bink2c $inputFull $outputFull /V6344
     $ok = Wait-Bk2 $outputFull
 } else {

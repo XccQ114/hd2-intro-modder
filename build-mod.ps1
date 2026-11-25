@@ -1,4 +1,4 @@
-# build-mod.ps1 - HD2 intro replacement mod generator (v1.2.0)
+# build-mod.ps1 - HD2 intro replacement mod generator (v1.3.0)
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File build-mod.ps1 -Video video.mp4
 #   powershell -ExecutionPolicy Bypass -File build-mod.ps1 -Video video.mp4 -Num 1 -Zip
@@ -179,6 +179,39 @@ function Find-Radvideo64 {
         'C:\Program Files (x86)\RADVideo\radvideo64.exe'
     )) { if (Test-Path -LiteralPath $p) { return $p } }
     return $null
+}
+
+function Get-EncoderInfo([string]$Path) {
+    # The flags word bink2c writes depends on which build of RAD Video Tools produced the
+    # file, so a report that only says "flags=0x..." cannot be acted on. Print the file
+    # version plus a short SHA256 so two machines can be compared without shipping the exe.
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return 'not found' }
+    $ver = ''
+    try { $ver = [string](Get-Item -LiteralPath $Path).VersionInfo.FileVersion } catch { }
+    if (-not $ver) { $ver = 'unknown' }
+    $sha = ''
+    try { $sha = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.Substring(0, 12).ToLower() } catch { }
+    if ($sha) { return ($ver + ' [' + $sha + ']') }
+    return $ver
+}
+
+# Human-readable breakdown of the flags word. Bit meanings below were measured on this
+# project (same clip, one /V switch at a time), not copied from documentation:
+#   bits 0-1  video slice mode   2 slices -> 00, 3 -> 01, 4 -> 10, 8 -> 11  (/V2248/4296/6344/8392)
+#   bit 2     HDR encode         /V270 (HDR) -> 0x40014 vs /V270+6144 -> 0x40016
+#   bit 4     base Bink 2 marker always set for KB2* output
+#   bit 18    Bink Audio 2 track /V200 (BA2) -> 0x40010, /V201 (BA1.1) -> 0x00000010
+# The game only accepts 0x40012 = KB2n + 4 slices + BA2. Anything else is refused.
+function Describe-Flags([uint32]$Flags) {
+    $parts = @()
+    $slice = [int]($Flags -band 0x3)
+    $parts += @('2 slices', '3 slices', '4 slices', '8 slices')[$slice]
+    if ($Flags -band 0x4) { $parts += 'HDR' }
+    if ($Flags -band 0x40000) { $parts += 'Bink Audio 2' } else { $parts += 'no Bink Audio 2' }
+    $knownMask = [uint32]::MaxValue -bxor [uint32]0x40017   # every bit except the four measured above
+    $unknown = $Flags -band $knownMask
+    if ($unknown) { $parts += ('unknown bits 0x' + $unknown.ToString('X')) }
+    return ($parts -join ', ')
 }
 
 function Find-Python {
@@ -386,6 +419,7 @@ W "=== HD2 intro mod generator ===" "Cyan"
 if (-not (Test-Path -LiteralPath $Video)) { W "[FATAL] input not found: $Video" "Red"; Stop-Script 1 }
 
 $rv     = Find-Radvideo64
+$rvInfo = Get-EncoderInfo $rv
 $py     = Find-Python
 $ww     = Find-WwiseConsole
 $wproj  = Find-Wproj
@@ -441,7 +475,7 @@ foreach ($b in $builtin) {
 }
 
 if ($verboseDeps) { W "[2] radvideo64 (video encoder)" "Yellow" }
-if ($rv) { if ($verboseDeps) { W "  [OK]   $rv" "Green" } }
+if ($rv) { if ($verboseDeps) { W "  [OK]   $rv  (v$rvInfo)" "Green" } }
 else { W "  [MISS] Install RAD Video Tools (free) from https://www.radgametools.com/bnkdown.htm" "Red"
        W "         or drop radvideo64.exe into: $Root" "Red" }
 
@@ -630,20 +664,60 @@ if ($LASTEXITCODE -ne 0) { W "[FATAL] encode failed" "Red"; Stop-Script 1 }
 if (-not (Test-Path -LiteralPath $Bk2) -or (Get-Item -LiteralPath $Bk2).Length -eq 0) { W "[FATAL] encode produced no output" "Red"; Stop-Script 1 }
 
 # flags check (must be 0x40012)
+# Raised to a hard gate in v1.1.0 after a bit-level comparison: 0x40010 crashes the game.
+# v1.3.0: the check now reports WHAT the flags mean and WHICH encoder build wrote them,
+# because a bare "flags=0x..." line (the shape of the only external bug report so far,
+# flags=0x8040012) cannot be diagnosed without the encoder identity.
 $ana = powershell.exe -NoProfile -ExecutionPolicy Bypass -File $AnalyzePs1 -Paths $Bk2 2>$null
 $flagsOk = $false
 $fm = [regex]::Match((($ana | Out-String)), 'fl=0x([0-9A-Fa-f]+)')
 if ($fm.Success) {
     $flags = [Convert]::ToUInt32($fm.Groups[1].Value, 16)
-    if ($flags -eq 0x40012) { $flagsOk = $true; W "  [OK]   flags=0x40012 (game-compatible)" "Green" }
-    else {
-        W "  [FATAL] flags=0x$($flags.ToString('X')) - the game requires 0x40012 and may crash otherwise." "Red"
+    if ($flags -eq 0x40012) {
+        $flagsOk = $true
+        W "  [OK]   flags=0x40012 (game-compatible)" "Green"
+    } else {
+        $diff = $flags -bxor [uint32]0x40012
+        W ("  [FATAL] flags=0x{0:X8} - the game requires 0x40012 and may crash otherwise." -f $flags) "Red"
+        W ("          differing bits vs 0x40012: 0x{0:X8}" -f $diff) "Red"
+        W ("          decoded: " + (Describe-Flags $flags)) "Red"
         W "          Refusing to produce a mod that can crash the game." "Red"
-        Move-FailedOutput -Dir $Out -Reason "encoded .bk2 has flags=0x$($flags.ToString('X')) instead of 0x40012"
+        # ---- write a report the user can paste back verbatim ----
+        $srcDesc = 'unknown'
+        if ($srcW -and $srcH) { $srcDesc = ("{0}x{1}" -f $srcW, $srcH) }
+        if ($fps) { $srcDesc = $srcDesc + (" @ {0:N2}fps" -f [double]$fps) }
+        $rep = @()
+        $rep += 'HD2 intro modder - flags mismatch report'
+        $rep += ('generated : ' + (Get-Date).ToString('s'))
+        $rep += ('source    : ' + $Video + '  [' + $srcDesc + ']')
+        $rep += ('encoded   : ' + $Bk2)
+        $rep += ('encoder   : ' + $rv + '  (v' + $rvInfo + ')')
+        $rep += ('command   : radvideo64.exe bink2c "<in>" "<out>" /V6344  (the switches encode.ps1 passes)')
+        $rep += ('flags     : 0x' + $flags.ToString('X8') + '   expected 0x40012   diff 0x' + $diff.ToString('X8'))
+        $rep += ('decoded   : ' + (Describe-Flags $flags))
+        $rep += ''
+        $rep += 'What the tool already knows about flags (measured on the maintainer machine):'
+        $rep += '  bits 0-1 = video slices   2/3/4/8 slices -> 0x0/0x1/0x2/0x3 (game needs 4 slices)'
+        $rep += '  bit 2    = HDR encode     /V270 style values set it'
+        $rep += '  bit 18   = Bink Audio 2   /V200 style values set it'
+        $rep += '  verified encoders that produce exactly 0x40012 with /V6344 (same source clip):'
+        $rep += '    RAD Video Tools 2025.05  (sha256 00df5b03a4e5...)'
+        $rep += '    RAD Video Tools 2026.06  (sha256 783c15fd5b35...)'
+        $rep += ''
+        $rep += 'Please send this file back together with:'
+        $rep += '  - the RAD Video Tools installer version you used (right-click radvideo64.exe -> Details)'
+        $rep += '  - whether you changed any setting inside the Bink Video Compressor window'
+        $rep += 'Do NOT hand-patch the header: only a re-encode with a correct encoder is verified.'
+        $repFile = Join-Path $LogDir ('flags-mismatch-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.txt')
+        try { Set-Content -LiteralPath $repFile -Value $rep -Encoding utf8 } catch { }
+        foreach ($l in $rep) { W ('          ' + $l) "DarkGray" }
+        if (Test-Path -LiteralPath $repFile) { W ('  [REPORT] saved: ' + $repFile) "Yellow" }
+        Move-FailedOutput -Dir $Out -Reason ("encoded .bk2 has flags=0x" + $flags.ToString('X') + " instead of 0x40012")
         Stop-Script 1
     }
 } else {
     W "  [FATAL] could not read the .bk2 flags - the mod cannot be verified as game-compatible." "Red"
+    W ("          encoder: " + $rv + "  (v" + $rvInfo + ")") "DarkGray"
     Move-FailedOutput -Dir $Out -Reason "could not parse the .bk2 flags"
     Stop-Script 1
 }

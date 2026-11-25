@@ -47,6 +47,7 @@ hd2-intro-modder-deps/
 
 # ---- internal notes (contain local machine paths and usernames) ----
 HANDOFF.md
+.dsh/
 
 # ---- OS noise ----
 Thumbs.db

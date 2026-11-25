@@ -92,6 +92,29 @@ powershell -ExecutionPolicy Bypass -File build-mod.ps1 -Video 视频.mp4 -Wem �
 - 内置 Wwise 项目（`wwise-project\intro-convert`）可移植（零绝对路径），装 Wwise 即可用。
 - `config.json` 记住非默认位置的 Wwise 路径。
 
+## flags 校验失败（`flags=0x...`）怎么办
+
+编码完成后工具会读 `.bk2` 头的 flags，必须正好等于 `0x40012`，否则**不输出成品**（半成品移入 `output\failed\`）。
+
+flags 不是随便一个数，它是**编码参数位图**（本机实测）：
+
+| 值 | 含义 | 后果 |
+|---|---|---|
+| `0x40012` | Bink2 + Bink Audio 2 + **4 slices** | ✅ 游戏可用 |
+| `0x40010` | 同上但 **2 slices**（例如手动用 RAD 图形界面编的、或 `/V6344` 没生效） | ❌ 游戏内崩溃 |
+| `0x40011` / `0x40013` | 3 slices / 8 slices | ❌ 拒绝输出 |
+| `0x40014` | 带 HDR 位（用了 `/V270` 之类） | ❌ 拒绝输出 |
+| `0x8040012` | 多出一个未知 bit27 | ❌ 拒绝输出（成因尚未查清，见下） |
+
+遇到时工具会在 `log\` 下写一份 **`flags-mismatch-<时间>.txt`**，里面含：实际 encoder 路径 + 文件版本 + SHA256 前 12 位、源分辨率/fps、flags 位解析。
+
+处理顺序：
+
+1. **别改头**。`0x40010 → 0x40012` 改头是无效的（数据位流与 flags 强绑定，游戏内照样崩）。只有重新编码才算数。
+2. 确认你用的是本工具验证过的 **RAD Video Tools**（免费版即可）：本机实测 **2025.05** 与 **2026.06** 配 `/V6344` 都稳定产出 `0x40012`。若你的版本更新/更旧且 `flags` 不对，换成本工具附带流程用的版本重装一次再跑。
+3. 确认**没有手动**用 RAD 图形界面编过视频再塞进 `output\` —— 那个流程不传 `/V6344`，必崩。
+4. 把 `log\build-mod-*.log` + `log\flags-mismatch-*.txt` 一起回贴，里面已经带了定位所需全部信息。
+
 ## 故障反馈（报错怎么办）
 
 遇到任何报错或失败，请收集以下信息后反馈（按重要性排序）：
@@ -213,6 +236,29 @@ Copy both into `Helldivers 2\data\`. Patch numbers must be 0..N with no gaps.
 - Audio comes from the video's own track (extracted, then Wwise Vorbis wem), or your `-Wem`.
 - The bundled Wwise project (`wwise-project\intro-convert`) is portable (zero absolute paths) - works on any machine with Wwise installed.
 - `config.json` remembers Wwise paths found in non-default locations.
+
+## Flags check failed (`flags=0x...`)
+
+After encoding, the tool reads the `.bk2` header flags; they must be exactly `0x40012`, otherwise **no mod is produced** (the half-built output is quarantined into `output\failed\`).
+
+The flags word is not arbitrary — it is a **bitmap of encoder settings** (measured on this project):
+
+| Value | Meaning | Result |
+|---|---|---|
+| `0x40012` | Bink2 + Bink Audio 2 + **4 slices** | ✅ game-compatible |
+| `0x40010` | same but **2 slices** (e.g. encoded by hand in the RAD GUI, or `/V6344` did not apply) | ❌ crashes in game |
+| `0x40011` / `0x40013` | 3 slices / 8 slices | ❌ refused |
+| `0x40014` | HDR bit set (`/V270`-style) | ❌ refused |
+| `0x8040012` | an extra unknown bit 27 | ❌ refused (cause still unknown, see below) |
+
+When it happens the tool writes **`log\flags-mismatch-<timestamp>.txt`** containing: the encoder path + file version + first 12 hex chars of its SHA256, source resolution/fps, and the flag breakdown.
+
+What to do:
+
+1. **Do not patch the header.** Turning `0x40010` into `0x40012` does not work — the bitstream is tied to the flag and the game still crashes. Only a re-encode counts.
+2. Use a **RAD Video Tools** build known to work: on the maintainer machine **2025.05** and **2026.06** both produce `0x40012` with `/V6344`. If yours differs and the flags are wrong, reinstall a matching build and rerun.
+3. Make sure you did **not** encode the video by hand in the RAD GUI and drop it into `output\` — that path never passes `/V6344` and will crash.
+4. Report `log\build-mod-*.log` together with `log\flags-mismatch-*.txt`; they already contain everything needed to diagnose.
 
 ## Troubleshooting / reporting bugs
 
